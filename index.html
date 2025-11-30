@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#6A1C9A" />
+    <title>Nunukkam Admin Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              primary: {
+                DEFAULT: '#6A1C9A', // Primary Brand
+                50: '#F5F3FF', // Brand Light
+                100: '#EDE9FE',
+                200: '#DDD6FE', // For Shadows
+                500: '#8B5CF6',
+                600: '#7C3AED',
+                700: '#6A1C9A', // Main Brand Color
+                800: '#5B21B6', // Brand Dark
+                900: '#4C1D95',
+              },
+              gray: {
+                50: '#F9FAFB', // Background App
+                100: '#F3F4F6', // Borders
+                200: '#E5E7EB',
+                400: '#9CA3AF',
+                500: '#6B7280', // Text Secondary
+                600: '#4B5563',
+                700: '#374151', // Form Labels
+                800: '#1F2937', // Headings
+                900: '#111827', // Text Primary
+              },
+              background: {
+                light: '#F9FAFB',
+                dark: '#1b1121'
+              }
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+            boxShadow: {
+                'brand': '0 10px 15px -3px rgba(106, 28, 154, 0.2), 0 4px 6px -2px rgba(106, 28, 154, 0.1)', // shadow-purple-200 equivalent
+                'purple-200': '0 4px 6px -1px rgba(221, 214, 254, 0.5), 0 2px 4px -1px rgba(221, 214, 254, 0.3)',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+        font-size: 20px;
+      }
+      .material-symbols-outlined.fill {
+        font-variation-settings: 'FILL' 1;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #f9fafb;
+      }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+      /* Hide scrollbar in sidebar */
+      aside::-webkit-scrollbar {
+        display: none;
+      }
+      aside {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      /* Input autofill fix */
+      input:-webkit-autofill,
+      input:-webkit-autofill:hover,
+      input:-webkit-autofill:focus,
+      input:-webkit-autofill:active{
+          -webkit-box-shadow: 0 0 0 30px white inset !important;
+      }
+    </style>
+</head>
+  <body class="bg-gray-50 dark:bg-background-dark text-gray-900 dark:text-gray-100">
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
