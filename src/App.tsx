@@ -1,7 +1,7 @@
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { StoreProvider } from './store/useStore';
-import Layout from './components/Layout';
+import MainLayout from './components/layout/MainLayout';
 import Login from './pages/Auth/Login';
 import ResetPassword from './pages/Auth/ResetPassword';
 import Dashboard from './pages/Dashboard';
@@ -53,7 +53,7 @@ const App: React.FC = () => {
           <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Protected Routes */}
-          <Route path="/" element={<Layout />}>
+          <Route path="/" element={<MainLayout />}>
             <Route path="dashboard" element={<Dashboard />} />
 
             {/* User Management */}

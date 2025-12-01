@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
+import Badge from '../../components/ui/Badge';
 
 const UserManagement: React.FC = () => {
   const navigate = useNavigate();
@@ -46,48 +49,30 @@ const UserManagement: React.FC = () => {
           <p className="text-sm text-gray-500 mt-1">Manage system users and permissions</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => navigate('/users/roles')}
-            className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined text-lg">admin_panel_settings</span>
+          <Button variant="outline" onClick={() => navigate('/users/roles')} icon="admin_panel_settings">
             Roles
-          </button>
-          <button
-            onClick={() => navigate('/users/designations')}
-            className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined text-lg">badge</span>
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/users/designations')} icon="badge">
             Designations
-          </button>
-          <button
-            onClick={() => navigate('/users/deactivated')}
-            className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined text-lg">person_off</span>
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/users/deactivated')} icon="person_off">
             Deactivated
-          </button>
-          <button
-            onClick={() => navigate('/users/add')}
-            className="px-6 py-2.5 bg-primary-700 text-white rounded-xl font-medium shadow-lg shadow-purple-200 hover:bg-primary-800 transition-all hover:-translate-y-0.5 flex items-center gap-2 text-sm"
-          >
-            <span className="material-symbols-outlined">add</span>
+          </Button>
+          <Button onClick={() => navigate('/users/add')} icon="add">
             Add User
-          </button>
+          </Button>
         </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl overflow-hidden shadow-sm">
         {/* Toolbar */}
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row justify-between gap-4 bg-white dark:bg-gray-800">
-          <div className="relative max-w-sm w-full group">
-            <span className="material-symbols-outlined absolute left-3 top-2.5 text-gray-400 group-focus-within:text-primary-700 transition-colors">search</span>
-            <input
-              type="text"
+          <div className="relative max-w-sm w-full">
+            <Input
               placeholder="Search users..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2.5 w-full border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-900 focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all text-sm"
+              icon="search"
             />
           </div>
           <div className="flex gap-3">
@@ -101,13 +86,9 @@ const UserManagement: React.FC = () => {
                 <option key={role.id} value={role.title}>{role.title}</option>
               ))}
             </select>
-            <button
-              onClick={handleBulkUpload}
-              className="px-4 py-2.5 bg-gray-50 text-gray-600 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-100 transition-colors flex items-center gap-2"
-            >
-              <span className="material-symbols-outlined">upload_file</span>
+            <Button variant="outline" onClick={handleBulkUpload} icon="upload_file">
               Bulk Upload
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -144,12 +125,12 @@ const UserManagement: React.FC = () => {
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 font-medium">{user.designation}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{user.email}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${
-                        user.role === 'Admin' ? 'bg-purple-100 text-purple-700' :
-                        user.role === 'Trainer' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
-                      }`}>
+                      <Badge variant={
+                        user.role === 'Admin' ? 'primary' :
+                          user.role === 'Trainer' ? 'secondary' : 'neutral'
+                      }>
                         {user.role}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">

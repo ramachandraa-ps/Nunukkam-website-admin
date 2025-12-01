@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
+import Badge from '../../components/ui/Badge';
 
 const Colleges: React.FC = () => {
   const navigate = useNavigate();
@@ -32,23 +35,17 @@ const Colleges: React.FC = () => {
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between gap-4 pb-6 border-b border-gray-100 dark:border-gray-700">
-        <div className="relative max-w-sm w-full group">
-          <span className="material-symbols-outlined absolute left-3 top-2.5 text-gray-400 group-focus-within:text-primary-700 transition-colors">search</span>
-          <input
-            type="text"
+        <div className="relative max-w-sm w-full">
+          <Input
             placeholder="Search by college name, city..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-2.5 w-full border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all"
+            icon="search"
           />
         </div>
-        <button
-          onClick={() => navigate('/colleges/add')}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 transition-all hover:-translate-y-0.5"
-        >
-          <span className="material-symbols-outlined">add</span>
+        <Button onClick={() => navigate('/colleges/add')} icon="add">
           Create New College
-        </button>
+        </Button>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
@@ -91,18 +88,20 @@ const Colleges: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{college.city}</td>
                     <td className="px-6 py-4">
-                      <span className="px-3 py-1 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
+                      <Badge variant="secondary">
                         {college.students.length} Students
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button
+                        <Button
+                          size="sm"
+                          variant="outline"
                           onClick={() => navigate(`/colleges/${college.id}/students`)}
-                          className="px-3 py-1.5 bg-gray-50 text-gray-600 border border-gray-200 rounded-lg text-xs font-bold uppercase tracking-wide hover:bg-gray-100 transition-colors"
+                          className="text-xs font-bold uppercase tracking-wide"
                         >
                           Add Students
-                        </button>
+                        </Button>
                         <button
                           onClick={() => navigate(`/colleges/${college.id}/schedule`)}
                           className="p-2 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-all"
