@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import Modal from '../../components/shared/Modal';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
@@ -18,12 +18,16 @@ interface DeadlineItem {
 const ScheduleSessions: React.FC = () => {
   const { collegeId } = useParams();
   const navigate = useNavigate();
+  // Read query params
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'deadlines' ? 'deadlines' : 'sessions';
+
   const { colleges, chapters, updateCollege, addToast } = useStore();
 
   const college = colleges.find(c => c.id === collegeId);
   const batches = college ? [...new Set(college.students.map(s => s.batch))].filter(Boolean) : [];
 
-  const [activeTab, setActiveTab] = useState<'sessions' | 'deadlines'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'deadlines'>(initialTab);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; type: 'session' | 'deadline'; index: number }>({ isOpen: false, type: 'session', index: -1 });
@@ -233,11 +237,10 @@ const ScheduleSessions: React.FC = () => {
       <div className="flex gap-4 border-b border-gray-100">
         <button
           onClick={() => setActiveTab('sessions')}
-          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'sessions'
-              ? 'border-primary-700 text-primary-700'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'sessions'
+            ? 'border-primary-700 text-primary-700'
+            : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
         >
           <span className="flex items-center gap-2">
             <span className="material-symbols-outlined text-lg">calendar_month</span>
@@ -246,11 +249,10 @@ const ScheduleSessions: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('deadlines')}
-          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'deadlines'
-              ? 'border-primary-700 text-primary-700'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'deadlines'
+            ? 'border-primary-700 text-primary-700'
+            : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
         >
           <span className="flex items-center gap-2">
             <span className="material-symbols-outlined text-lg">assignment_turned_in</span>
