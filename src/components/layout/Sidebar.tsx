@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 
 interface SidebarProps {
@@ -7,15 +7,35 @@ interface SidebarProps {
     setIsMobileMenuOpen: (isOpen: boolean) => void;
 }
 
+interface NavItem {
+    name: string;
+    icon: string;
+    path: string;
+    children?: { name: string; path: string; icon?: string }[];
+}
+
 const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen, setIsMobileMenuOpen }) => {
     const location = useLocation();
     const navigate = useNavigate();
+    const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
 
-    const navItems = [
+    const navItems: NavItem[] = [
         { name: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
-        { name: 'Course Master', icon: 'auto_stories', path: '/courses' },
+        {
+            name: 'Courses',
+            icon: 'auto_stories',
+            path: '/courses',
+            children: [
+                { name: 'Course Master', path: '/courses' }, // Matches wireframe "Course Master" sub-item
+                { name: 'Create Course', path: '/courses/create' },
+                { name: 'Add Core Skills', path: '/courses/core-skills' },
+                { name: 'Add Skills', path: '/courses/skills' },
+                { name: 'Add Assessment Types', path: '/courses/assessment-types' },
+                { name: 'Add Chapters', path: '/courses/chapters' },
+            ]
+        },
+        { name: 'Program Management', icon: 'collections_bookmark', path: '/colleges' },
         { name: 'User Management', icon: 'group', path: '/users' },
-        { name: 'Colleges', icon: 'school', path: '/colleges' },
         { name: 'Reports', icon: 'bar_chart', path: '/reports' },
     ];
 
@@ -23,12 +43,31 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
         { name: 'Settings', icon: 'settings', path: '/settings' },
     ];
 
+    // Auto-expand menu if active link is child
+    useEffect(() => {
+        const activeItem = navItems.find(item =>
+            item.path !== '/dashboard' && location.pathname.startsWith(item.path)
+        );
+        if (activeItem && activeItem.children) {
+            setExpandedMenu(activeItem.name);
+        }
+    }, [location.pathname]);
+
+    const handleMenuClick = (item: NavItem, e: React.MouseEvent) => {
+        if (item.children) {
+            e.preventDefault();
+            setExpandedMenu(expandedMenu === item.name ? null : item.name);
+        } else {
+            setIsMobileMenuOpen(false);
+        }
+    };
+
     return (
         <>
             {/* Mobile Sidebar Backdrop */}
             {isMobileMenuOpen && (
                 <div
-                    className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+                    className="fixed inset-0 bg-black/50 z-40"
                     onClick={() => setIsMobileMenuOpen(false)}
                 />
             )}
@@ -36,46 +75,68 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
             {/* Sidebar */}
             <aside
                 className={`
-          fixed inset-y-0 left-0 z-50 bg-white dark:bg-[#1F2937] border-r border-gray-100 dark:border-gray-700
-          transition-all duration-300 ease-in-out flex flex-col overflow-hidden
-          ${isMobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0'}
-          ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-64'}
+          absolute top-16 left-4 z-50 bg-white dark:bg-[#1F2937] border border-gray-100 dark:border-gray-700
+          rounded-xl shadow-2xl transition-all duration-200 ease-in-out flex flex-col overflow-hidden max-h-[calc(100vh-5rem)]
+          ${isMobileMenuOpen ? 'opacity-100 scale-100 visible' : 'opacity-0 scale-95 invisible pointer-events-none'}
+          w-64 origin-top-left
         `}
             >
-                {/* Logo Section */}
-                <div className={`flex-shrink-0 flex flex-col items-center justify-center border-b border-gray-100 dark:border-gray-700 transition-all duration-300 ${isSidebarCollapsed ? 'h-[72px] py-2' : 'h-28 py-2'}`}>
-                    <div className="flex flex-col items-center cursor-pointer" onClick={() => navigate('/dashboard')}>
-                        <img
-                            src="/logo.png"
-                            alt="Nunukkam"
-                            className={`object-contain transition-all duration-300 ${isSidebarCollapsed ? 'w-14 h-14' : 'w-24 h-24'}`}
-                        />
-                        {!isSidebarCollapsed && (
-                            <p className="text-xs text-gray-700 dark:text-gray-300 font-medium tracking-wide">Admin Portal</p>
-                        )}
-                    </div>
-                </div>
+
 
                 {/* Navigation Items */}
                 <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto overflow-x-hidden">
                     {navItems.map((item) => {
-                        const isActive = location.pathname.startsWith(item.path);
+                        const isActive = location.pathname.startsWith(item.path) && item.path !== '/dashboard'; // Simple active check, improved below for children
+                        // Dashboard exact match check
+                        const isDashboardActive = item.path === '/dashboard' && location.pathname === '/dashboard';
+                        const isItemActive = isDashboardActive || (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
+                        const isExpanded = expandedMenu === item.name;
+
                         return (
-                            <NavLink
-                                key={item.path}
-                                to={item.path}
-                                title={isSidebarCollapsed ? item.name : ''}
-                                className={`
-                  flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                  ${isActive
-                                        ? 'bg-primary-700 text-white shadow-md shadow-purple-100'
-                                        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
-                  ${isSidebarCollapsed ? 'justify-center' : ''}
-                `}
-                            >
-                                <span className={`material-symbols-outlined text-[20px] ${isActive ? 'fill' : ''}`}>{item.icon}</span>
-                                {!isSidebarCollapsed && <span>{item.name}</span>}
-                            </NavLink>
+                            <div key={item.name}>
+                                <NavLink
+                                    to={item.path}
+                                    onClick={(e) => handleMenuClick(item, e)}
+                                    className={`
+                                        flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer
+                                        ${isItemActive
+                                            ? 'bg-primary-50 text-primary-700'
+                                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
+                                    `}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span className={`material-symbols-outlined text-[20px] ${isItemActive ? 'fill' : ''}`}>{item.icon}</span>
+                                        <span>{item.name}</span>
+                                    </div>
+                                    {item.children && (
+                                        <span className="material-symbols-outlined text-[20px]">
+                                            {isExpanded ? 'expand_less' : 'expand_more'}
+                                        </span>
+                                    )}
+                                </NavLink>
+
+                                {/* Sub-menu */}
+                                {item.children && isExpanded && (
+                                    <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-100 dark:border-gray-700 pl-2">
+                                        {item.children.map((child) => (
+                                            <NavLink
+                                                key={child.path}
+                                                to={child.path}
+                                                onClick={() => setIsMobileMenuOpen(false)}
+                                                end={child.path === '/courses'} // Add exact match for the main list if needed
+                                                className={({ isActive }) => `
+                                                    flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200
+                                                    ${isActive
+                                                        ? 'text-primary-700 font-medium bg-primary-50/50'
+                                                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800'}
+                                                `}
+                                            >
+                                                <span>{child.name}</span>
+                                            </NavLink>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         );
                     })}
                 </nav>
@@ -89,17 +150,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
                             <NavLink
                                 key={item.path}
                                 to={item.path}
-                                title={isSidebarCollapsed ? item.name : ''}
-                                className={`
+                                onClick={() => setIsMobileMenuOpen(false)}
+                                className={({ isActive }) => `
                   flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                   ${isActive
-                                        ? 'bg-primary-700 text-white shadow-md shadow-purple-100'
+                                        ? 'bg-primary-50 text-primary-700'
                                         : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
-                  ${isSidebarCollapsed ? 'justify-center' : ''}
                 `}
                             >
-                                <span className={`material-symbols-outlined text-[20px] ${isActive ? 'fill' : ''}`}>{item.icon}</span>
-                                {!isSidebarCollapsed && <span>{item.name}</span>}
+                                <span className={`material-symbols-outlined text-[20px] ${item.path === location.pathname ? 'fill' : ''}`}>{item.icon}</span>
+                                <span>{item.name}</span>
                             </NavLink>
                         );
                     })}

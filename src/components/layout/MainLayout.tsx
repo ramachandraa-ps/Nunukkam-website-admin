@@ -15,19 +15,18 @@ const MainLayout: React.FC = () => {
             {/* Toast Notifications */}
             <Toast toasts={toasts} removeToast={removeToast} />
 
-            {/* Sidebar */}
-            <Sidebar
-                isSidebarCollapsed={isSidebarCollapsed}
-                isMobileMenuOpen={isMobileMenuOpen}
-                setIsMobileMenuOpen={setIsMobileMenuOpen}
-            />
+            {/* Sidebar (Dropdown) */}
+            <div className="relative z-50">
+                <Sidebar
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    isMobileMenuOpen={isMobileMenuOpen}
+                    setIsMobileMenuOpen={setIsMobileMenuOpen}
+                />
+            </div>
 
             {/* Main Content Wrapper */}
             <div
-                className={`
-          flex-1 flex flex-col min-w-0 transition-all duration-300
-          ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'}
-        `}
+                className="flex-1 flex flex-col min-w-0 transition-all duration-300"
             >
                 {/* Header */}
                 <Header

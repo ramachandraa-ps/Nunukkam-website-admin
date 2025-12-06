@@ -145,80 +145,89 @@ const CourseModules: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{course.title}</h1>
           <p className="text-sm text-gray-500 mt-1">Manage modules for this course</p>
         </div>
-        <button
-          onClick={() => handleOpenModal()}
-          className="px-6 py-2.5 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 transition-all hover:-translate-y-0.5 flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined">add</span>
-          Add Module
-        </button>
+
       </div>
 
-      {/* Modules Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
-            <tr>
-              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Sl.No</th>
-              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Module Title</th>
-              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">No. of Chapters</th>
-              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Chapters</th>
-              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-            {course.modules.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                  No modules added yet. Add your first module.
-                </td>
-              </tr>
-            ) : (
-              course.modules.map((module, idx) => (
-                <tr key={module.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                  <td className="px-6 py-4 text-sm text-gray-500 font-medium">{idx + 1}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white">{module.title}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-3 py-1 bg-blue-50 text-blue-700 text-sm rounded-full font-medium">
-                      {module.chapters.length}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-wrap gap-1 max-w-sm">
-                      {module.chapters.slice(0, 2).map(chId => (
-                        <span key={chId} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
-                          {getChapterName(chId)}
-                        </span>
-                      ))}
-                      {module.chapters.length > 2 && (
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
-                          +{module.chapters.length - 2} more
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => handleOpenModal(module)}
-                        className="p-2 rounded-lg text-gray-400 hover:text-primary-700 hover:bg-gray-100 transition-all"
-                      >
-                        <span className="material-symbols-outlined">edit</span>
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirm({ isOpen: true, id: module.id })}
-                        className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
-                      >
-                        <span className="material-symbols-outlined">delete</span>
-                      </button>
-                    </div>
-                  </td>
+      {/* Modules List or Empty State */}
+      {course.modules.length === 0 ? (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-center min-h-[400px]">
+          <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6">
+            <span className="material-symbols-outlined text-4xl text-gray-400">view_module</span>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No Modules Added Yet</h3>
+          <p className="text-gray-500 max-w-md mb-8">
+            Create modules to organize your course content effectively.
+            Modules can contain multiple chapters and assessments.
+          </p>
+          <button
+            onClick={() => navigate(`/courses/${courseId}/modules/add`)}
+            className="px-8 py-3 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 transition-all hover:-translate-y-1 flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined">add</span>
+            Add Module
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6">
+          <div className="overflow-hidden mb-6">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Sl.No</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Module</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">No of chapters</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">No of assessments</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 text-center">Actions</th>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                {course.modules.map((module, idx) => {
+                  const moduleChapters = chapters.filter(c => module.chapters.includes(c.id));
+                  const assessmentCount = moduleChapters.reduce((acc, c) => acc + c.assessments.length, 0);
+
+                  return (
+                    <tr key={module.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                      <td className="px-6 py-4 text-sm text-gray-500 font-medium">{idx + 1}</td>
+                      <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white">{module.title}</td>
+                      <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                        {module.chapters.length}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                        {assessmentCount}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => handleOpenModal(module)}
+                            className="p-2 rounded-lg text-gray-400 hover:text-primary-700 hover:bg-gray-100 transition-all"
+                          >
+                            <span className="material-symbols-outlined">edit</span>
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm({ isOpen: true, id: module.id })}
+                            className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                          >
+                            <span className="material-symbols-outlined">delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={() => navigate(`/courses/${courseId}/modules/add`)}
+              className="px-6 py-2.5 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 transition-all hover:-translate-y-0.5 flex items-center gap-2"
+            >
+              <span className="material-symbols-outlined">add</span>
+              Add More Modules
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

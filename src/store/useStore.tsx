@@ -42,6 +42,7 @@ export interface Assessment {
   kind: 'Pre-KBA' | 'Post-KBA';
   duration: number;
   type: string;
+  questionType: 'mcq' | 'non-mcq';
   skills: string[];
   passingCutoff: number;
   expertPercentage: number;
@@ -413,9 +414,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Chapters CRUD
   const addChapter = useCallback((chapter: Omit<Chapter, 'id' | 'createdAt'>) => {
-    const newChapter = { ...chapter, id: generateId(), createdAt: new Date() };
+    const id = generateId();
+    const newChapter = { ...chapter, id, createdAt: new Date() };
     setChapters((prev) => [...prev, newChapter]);
     addToast('success', 'Chapter added successfully');
+    return id; // Return ID for navigation
   }, [addToast]);
 
   const updateChapter = useCallback((id: string, chapter: Partial<Chapter>) => {

@@ -109,7 +109,7 @@ const Courses: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredCourses.map((course) => (
-            <div key={course.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col group">
+            <div key={course.id} onClick={() => navigate(`/courses/${course.id}/core-skills`)} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer">
               <div className="h-40 bg-gradient-to-br from-primary-600 to-primary-800 relative">
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                 <div className="absolute bottom-4 left-4 right-4">
@@ -135,7 +135,7 @@ const Courses: React.FC = () => {
                       {course.durationDays} Days
                     </span>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => navigate(`/courses/${course.id}/modules`)}
                       className="text-gray-400 hover:text-primary-700 p-2 rounded-lg hover:bg-gray-50 transition-colors"

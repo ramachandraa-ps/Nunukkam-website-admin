@@ -12,19 +12,7 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ isSidebarCollapsed, setIsSidebarCollapsed, setIsMobileMenuOpen }) => {
     const navigate = useNavigate();
 
-    // Sidebar panel toggle button
-    const SidebarToggle = () => (
-        <button
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="hidden lg:flex items-center justify-center w-9 h-9 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200"
-            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-            </svg>
-        </button>
-    );
+
 
     return (
         <header className="h-16 bg-white dark:bg-[#1F2937] border-b border-gray-100 dark:border-gray-700 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30">
@@ -32,11 +20,10 @@ const Header: React.FC<HeaderProps> = ({ isSidebarCollapsed, setIsSidebarCollaps
             <div className="flex items-center gap-4">
                 <button
                     onClick={() => setIsMobileMenuOpen(true)}
-                    className="lg:hidden text-gray-400 hover:text-gray-700"
+                    className="text-gray-400 hover:text-gray-700"
                 >
                     <span className="material-symbols-outlined">menu</span>
                 </button>
-                <SidebarToggle />
 
                 <div className="hidden md:block">
                     <Breadcrumbs />

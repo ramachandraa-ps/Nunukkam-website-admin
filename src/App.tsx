@@ -24,6 +24,7 @@ import AddChapter from './pages/CourseMaster/AddChapter';
 import CourseModules from './pages/CourseMaster/CourseModules';
 import AddAssessment from './pages/CourseMaster/AddAssessment';
 import AddQuestions from './pages/CourseMaster/AddQuestions';
+import AddModule from './pages/CourseMaster/AddModule';
 
 // Program Management (Colleges)
 import Colleges from './pages/Colleges/Colleges';
@@ -70,6 +71,7 @@ const App: React.FC = () => {
             <Route path="courses/edit/:id" element={<CreateCourse />} />
             <Route path="courses/:courseId/core-skills" element={<CoreSkills />} />
             <Route path="courses/:courseId/modules" element={<CourseModules />} />
+            <Route path="courses/:courseId/modules/add" element={<AddModule />} />
             <Route path="courses/core-skills" element={<CoreSkills />} />
             <Route path="courses/skills" element={<Skills />} />
             <Route path="courses/assessment-types" element={<AssessmentTypes />} />

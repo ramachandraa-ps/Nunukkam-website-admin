@@ -192,10 +192,10 @@ const Layout: React.FC = () => {
       {/* Toast Notifications */}
       <Toast toasts={toasts} removeToast={removeToast} />
 
-      {/* Mobile Sidebar Backdrop */}
+      {/* Mobile/Desktop Sidebar Backdrop */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 z-40"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
@@ -205,8 +205,7 @@ const Layout: React.FC = () => {
         className={`
           fixed inset-y-0 left-0 z-50 bg-white dark:bg-[#1F2937] border-r border-gray-100 dark:border-gray-700
           transition-all duration-300 ease-in-out flex flex-col overflow-hidden
-          ${isMobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0'}
-          ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-64'}
+          ${isMobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full'}
         `}
       >
         {/* Logo Section */}
@@ -289,10 +288,7 @@ const Layout: React.FC = () => {
 
       {/* Main Content Wrapper */}
       <div
-        className={`
-          flex-1 flex flex-col min-w-0 transition-all duration-300
-          ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'}
-        `}
+        className="flex-1 flex flex-col min-w-0 transition-all duration-300"
       >
         {/* Top Header */}
         <header className="h-16 bg-white dark:bg-[#1F2937] border-b border-gray-100 dark:border-gray-700 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30">
@@ -301,11 +297,10 @@ const Layout: React.FC = () => {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="lg:hidden text-gray-400 hover:text-gray-700"
+              className="text-gray-400 hover:text-gray-700"
             >
               <span className="material-symbols-outlined">menu</span>
             </button>
-            <SidebarToggle />
 
             <div className="hidden md:block">
               {getBreadcrumbs()}
