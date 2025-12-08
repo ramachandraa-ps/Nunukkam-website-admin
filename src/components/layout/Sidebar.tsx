@@ -34,7 +34,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
                 { name: 'Add Chapters', path: '/courses/chapters' },
             ]
         },
-        { name: 'Program Management', icon: 'collections_bookmark', path: '/colleges' },
+        {
+            name: 'Program Management',
+            icon: 'collections_bookmark',
+            path: '/colleges',
+            children: [
+                { name: 'Program Master', path: '/colleges/master' },
+                { name: 'Colleges', path: '/colleges' },
+            ]
+        },
         { name: 'User Management', icon: 'group', path: '/users' },
         { name: 'Reports', icon: 'bar_chart', path: '/reports' },
     ];
@@ -75,12 +83,25 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
             {/* Sidebar */}
             <aside
                 className={`
-          absolute top-16 left-4 z-50 bg-white dark:bg-[#1F2937] border border-gray-100 dark:border-gray-700
-          rounded-xl shadow-2xl transition-all duration-200 ease-in-out flex flex-col overflow-hidden max-h-[calc(100vh-5rem)]
-          ${isMobileMenuOpen ? 'opacity-100 scale-100 visible' : 'opacity-0 scale-95 invisible pointer-events-none'}
-          w-64 origin-top-left
-        `}
+                    fixed inset-y-0 left-0 z-50 bg-white dark:bg-[#1F2937] border-r border-gray-100 dark:border-gray-700
+                    transition-all duration-300 ease-in-out flex flex-col overflow-hidden
+                    ${isSidebarCollapsed ? 'w-20' : 'w-64'}
+                    ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+                `}
             >
+                {/* Logo Section */}
+                <div className={`flex-shrink-0 flex flex-col items-center justify-center border-b border-gray-100 dark:border-gray-700 transition-all duration-300 ${isSidebarCollapsed ? 'h-[72px] py-2' : 'h-28 py-2'}`}>
+                    <div className="flex flex-col items-center cursor-pointer" onClick={() => navigate('/dashboard')}>
+                        <img
+                            src="/logo.png"
+                            alt="Nunukkam"
+                            className={`object-contain transition-all duration-300 ${isSidebarCollapsed ? 'w-10 h-10' : 'w-24 h-24'}`}
+                        />
+                        {!isSidebarCollapsed && (
+                            <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium tracking-wide mt-2">Admin Portal</p>
+                        )}
+                    </div>
+                </div>
 
 
                 {/* Navigation Items */}

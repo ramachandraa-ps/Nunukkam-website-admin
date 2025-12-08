@@ -3,11 +3,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useStore, Question } from '../../store/useStore';
 
 const AddQuestions: React.FC = () => {
-  const { assessmentId } = useParams();
+  const { chapterId, assessmentId } = useParams();
   const navigate = useNavigate();
   const { chapters, updateChapter, addToast } = useStore();
 
-  const chapter = chapters.find(c => c.assessments.some(a => a.id === assessmentId));
+  const chapter = chapters.find(c => c.id === chapterId);
   const assessment = chapter?.assessments.find(a => a.id === assessmentId);
 
   const [questions, setQuestions] = useState<Question[]>(assessment?.questions || []);
@@ -92,31 +92,7 @@ const AddQuestions: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-24 px-4">
       {/* Breadcrumb */}
-      <div>
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-          <span
-            onClick={() => navigate('/courses')}
-            className="text-gray-500 font-medium hover:text-purple-600 cursor-pointer transition-colors"
-          >
-            Course master
-          </span>
-          <span className="text-gray-400">&rarr;</span>
-          <span
-            onClick={() => navigate('/courses/chapters')}
-            className="text-gray-500 font-medium hover:text-purple-600 cursor-pointer transition-colors"
-          >
-            Add chapters
-          </span>
-          <span className="text-gray-400">&rarr;</span>
-          <span
-            className="text-gray-500 font-medium hover:text-purple-600 cursor-pointer transition-colors"
-          >
-            Add Assessments
-          </span>
-          <span className="text-gray-400">&rarr;</span>
-          <span className="text-purple-600">Add Questions</span>
-        </h1>
-      </div>
+      {/* Breadcrumb removed - using global breadcrumb */}
 
       <div className="flex gap-8 items-start">
         {/* Sidebar Actions */}

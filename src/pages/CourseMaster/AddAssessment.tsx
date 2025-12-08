@@ -3,24 +3,29 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 
 const AddAssessment: React.FC = () => {
-  const { chapterId } = useParams();
+  const { chapterId, assessmentId } = useParams();
   const navigate = useNavigate();
   const { chapters, skills, assessmentTypes, updateChapter, addToast } = useStore();
 
   const chapter = chapters.find(c => c.id === chapterId);
-  const assessmentNumber = (chapter?.assessments.length || 0) + 1;
+  const editingAssessment = chapter?.assessments.find(a => a.id === assessmentId);
+  const isEditMode = !!editingAssessment;
+
+  const assessmentNumber = isEditMode
+    ? chapter?.assessments.findIndex(a => a.id === assessmentId)! + 1
+    : (chapter?.assessments.length || 0) + 1;
 
   const [formData, setFormData] = useState({
-    title: '',
-    kind: 'Pre-KBA' as 'Pre-KBA' | 'Post-KBA',
-    questionType: 'mcq' as 'mcq' | 'non-mcq',
-    duration: 1,
-    type: '',
-    skills: [] as string[],
-    passingCutoff: 60,
-    expertPercentage: 90,
-    intermediatePercentage: 70,
-    novicePercentage: 50,
+    title: editingAssessment?.title || '',
+    kind: (editingAssessment?.kind || 'Pre-KBA') as 'Pre-KBA' | 'Post-KBA',
+    questionType: (editingAssessment?.questionType || 'mcq') as 'mcq' | 'non-mcq',
+    duration: editingAssessment?.duration || 1,
+    type: editingAssessment?.type || '',
+    skills: editingAssessment?.skills || [] as string[],
+    passingCutoff: editingAssessment?.passingCutoff || 60,
+    expertPercentage: editingAssessment?.expertPercentage || 90,
+    intermediatePercentage: editingAssessment?.intermediatePercentage || 70,
+    novicePercentage: editingAssessment?.novicePercentage || 50,
   });
 
   if (!chapter) {
@@ -37,11 +42,11 @@ const AddAssessment: React.FC = () => {
 
   const saveAssessment = () => {
     return {
-      id: Math.random().toString(36).substr(2, 9),
+      id: isEditMode ? assessmentId! : Math.random().toString(36).substr(2, 9),
       ...formData,
       // Sync questionType with the selected type for consistency
       questionType: formData.type.toLowerCase() === 'mcq' ? 'mcq' : 'non-mcq',
-      questions: [],
+      questions: isEditMode ? editingAssessment?.questions || [] : [],
     };
   };
 
@@ -49,19 +54,24 @@ const AddAssessment: React.FC = () => {
     e.preventDefault();
     if (formData.title.trim() && formData.type) {
       const newAssessment = saveAssessment();
+      const updatedAssessments = isEditMode
+        ? chapter.assessments.map(a => a.id === assessmentId ? newAssessment : a)
+        : [...chapter.assessments, newAssessment];
 
-      updateChapter(chapter.id, {
-        assessments: [...chapter.assessments, newAssessment],
-      });
+      updateChapter(chapter.id, { assessments: updatedAssessments });
 
       addToast('success', 'Assessment details saved. Proceeding to questions.');
-      navigate(`/courses/assessments/${newAssessment.id}/questions`);
+      navigate(`/courses/chapters/${chapter.id}/assessments/${newAssessment.id}/questions`);
     } else {
       addToast('warning', 'Please fill all required fields');
     }
   };
 
   const handleAddMore = () => {
+    if (isEditMode) {
+      addToast('info', 'Cannot add more while editing. Finish editing first.');
+      return;
+    }
     if (formData.title.trim() && formData.type) {
       const newAssessment = saveAssessment();
       updateChapter(chapter.id, {
@@ -88,9 +98,11 @@ const AddAssessment: React.FC = () => {
   const handleSubmit = () => {
     if (formData.title.trim() && formData.type) {
       const newAssessment = saveAssessment();
-      updateChapter(chapter.id, {
-        assessments: [...chapter.assessments, newAssessment],
-      });
+      const updatedAssessments = isEditMode
+        ? chapter.assessments.map(a => a.id === assessmentId ? newAssessment : a)
+        : [...chapter.assessments, newAssessment];
+
+      updateChapter(chapter.id, { assessments: updatedAssessments });
       addToast('success', 'Assessment saved successfully');
     }
     navigate('/courses/chapters');
@@ -108,25 +120,7 @@ const AddAssessment: React.FC = () => {
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-24">
       {/* Breadcrumb */}
-      <div>
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-          <span
-            onClick={() => navigate('/courses')}
-            className="text-gray-500 font-medium hover:text-purple-600 cursor-pointer transition-colors"
-          >
-            Course master
-          </span>
-          <span className="text-gray-400">&rarr;</span>
-          <span
-            onClick={() => navigate('/courses/chapters')}
-            className="text-gray-500 font-medium hover:text-purple-600 cursor-pointer transition-colors"
-          >
-            Add chapters
-          </span>
-          <span className="text-gray-400">&rarr;</span>
-          <span className="text-purple-600">Add Assessments</span>
-        </h1>
-      </div>
+      {/* Breadcrumb removed - using global breadcrumb */}
 
       <div className="flex gap-8 items-start">
         {/* Sidebar Actions */}
