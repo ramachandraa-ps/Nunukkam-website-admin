@@ -19,7 +19,13 @@ const Header: React.FC<HeaderProps> = ({ isSidebarCollapsed, setIsSidebarCollaps
             {/* Left Section: Toggle & Breadcrumbs */}
             <div className="flex items-center gap-4">
                 <button
-                    onClick={() => setIsMobileMenuOpen(true)}
+                    onClick={() => {
+                        if (window.innerWidth >= 1024) {
+                            setIsSidebarCollapsed(!isSidebarCollapsed);
+                        } else {
+                            setIsMobileMenuOpen(true);
+                        }
+                    }}
                     className="text-gray-400 hover:text-gray-700"
                 >
                     <span className="material-symbols-outlined">menu</span>

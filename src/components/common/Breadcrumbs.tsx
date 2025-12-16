@@ -8,10 +8,14 @@ const Breadcrumbs: React.FC = () => {
     const { courses, colleges, chapters } = useStore();
     const pathnames = location.pathname.split('/').filter((x) => x);
 
-    // Don't show breadcrumbs on dashboard
-    if (pathnames.length === 0 || (pathnames.length === 1 && pathnames[0] === 'dashboard')) {
-        return null; // Or render just "Home" if preferred, but usually dashboard is root
-    }
+    // Don't show breadcrumbs on dashboard - REMOVED per requirement to show "Dashboard" title
+    // if (pathnames.length === 0 || (pathnames.length === 1 && pathnames[0] === 'dashboard')) {
+    //     return null; 
+    // }
+
+    // If we are on dashboard, ensure "Dashboard" is in the pathnames or handled
+    const isDashboard = pathnames.length === 0 || (pathnames.length === 1 && pathnames[0] === 'dashboard');
+    const displayPathnames = isDashboard ? ['dashboard'] : pathnames;
 
     const resolveBreadcrumb = (name: string, index: number, pathArray: string[]) => {
         const fullPath = `/${pathArray.slice(0, index + 1).join('/')}`;
@@ -96,9 +100,9 @@ const Breadcrumbs: React.FC = () => {
                 <span className="material-symbols-outlined text-lg">home</span>
                 Home
             </span>
-            {pathnames.map((name, index) => {
-                const { name: displayName, path, isClickable } = resolveBreadcrumb(name, index, pathnames);
-                const isLast = index === pathnames.length - 1;
+            {displayPathnames.map((name, index) => {
+                const { name: displayName, path, isClickable } = resolveBreadcrumb(name, index, displayPathnames);
+                const isLast = index === displayPathnames.length - 1;
 
                 return (
                     <React.Fragment key={index}>

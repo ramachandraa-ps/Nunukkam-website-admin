@@ -91,7 +91,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
             >
                 {/* Logo Section */}
                 <div className={`flex-shrink-0 flex flex-col items-center justify-center border-b border-gray-100 dark:border-gray-700 transition-all duration-300 ${isSidebarCollapsed ? 'h-[72px] py-2' : 'h-28 py-2'}`}>
-                    <div className="flex flex-col items-center cursor-pointer" onClick={() => navigate('/dashboard')}>
+                    <div
+                        className="flex flex-col items-center cursor-pointer"
+                        onClick={() => {
+                            if (location.pathname === '/dashboard') {
+                                // Scroll to top
+                                const mainContent = document.getElementById('main-content');
+                                if (mainContent) {
+                                    mainContent.scrollTo({ top: 0, behavior: 'smooth' });
+                                }
+                            } else {
+                                navigate('/dashboard');
+                            }
+                        }}
+                    >
                         <img
                             src="/logo.png"
                             alt="Nunukkam"
@@ -119,17 +132,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
                                     to={item.path}
                                     onClick={(e) => handleMenuClick(item, e)}
                                     className={`
-                                        flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer
+                                        flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer
                                         ${isItemActive
                                             ? 'bg-primary-50 text-primary-700'
                                             : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
                                     `}
+                                    title={isSidebarCollapsed ? item.name : ''}
                                 >
                                     <div className="flex items-center gap-3">
                                         <span className={`material-symbols-outlined text-[20px] ${isItemActive ? 'fill' : ''}`}>{item.icon}</span>
-                                        <span>{item.name}</span>
+                                        {!isSidebarCollapsed && <span>{item.name}</span>}
                                     </div>
-                                    {item.children && (
+                                    {!isSidebarCollapsed && item.children && (
                                         <span className="material-symbols-outlined text-[20px]">
                                             {isExpanded ? 'expand_less' : 'expand_more'}
                                         </span>
@@ -137,7 +151,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
                                 </NavLink>
 
                                 {/* Sub-menu */}
-                                {item.children && isExpanded && (
+                                {item.children && isExpanded && !isSidebarCollapsed && (
                                     <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-100 dark:border-gray-700 pl-2">
                                         {item.children.map((child) => (
                                             <NavLink
@@ -173,14 +187,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
                                 to={item.path}
                                 onClick={() => setIsMobileMenuOpen(false)}
                                 className={({ isActive }) => `
-                  flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+                  flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                   ${isActive
                                         ? 'bg-primary-50 text-primary-700'
                                         : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
                 `}
+                                title={isSidebarCollapsed ? item.name : ''}
                             >
                                 <span className={`material-symbols-outlined text-[20px] ${item.path === location.pathname ? 'fill' : ''}`}>{item.icon}</span>
-                                <span>{item.name}</span>
+                                {!isSidebarCollapsed && <span>{item.name}</span>}
                             </NavLink>
                         );
                     })}

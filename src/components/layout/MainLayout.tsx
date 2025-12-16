@@ -34,7 +34,7 @@ const MainLayout: React.FC = () => {
                 />
 
                 {/* Page Content */}
-                <main className="flex-1 overflow-y-auto p-6 md:p-8">
+                <main id="main-content" className="flex-1 overflow-y-auto p-6 md:p-8">
                     <Outlet />
                 </main>
             </div>
