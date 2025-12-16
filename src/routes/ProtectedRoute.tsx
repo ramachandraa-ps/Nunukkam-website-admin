@@ -9,9 +9,8 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-    // TODO: Replace with actual auth check using your store or context
-    // Example: const { isAuthenticated } = useAuth();
-    const isAuthenticated = true; // Temporary bypass for demonstration, set to correct logic
+    // Check for authentication token or flag in localStorage
+    const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
 
     if (!isAuthenticated) {
         return <Navigate to={PATHS.AUTH.LOGIN} replace />;

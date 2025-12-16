@@ -202,7 +202,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarCollapsed, isMobileMenuOpen,
 
                     {/* Logout */}
                     <button
-                        onClick={() => navigate('/login')}
+                        onClick={() => {
+                            localStorage.removeItem('isAuthenticated');
+                            navigate('/login');
+                        }}
                         className={`
               flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium
               text-gray-600 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 transition-colors
