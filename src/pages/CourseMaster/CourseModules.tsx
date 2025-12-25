@@ -1,23 +1,147 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useStore, Module } from '../../store/useStore';
+import { useStore } from '../../store/useStore';
+import courseService from '../../services/courseService';
+import moduleService from '../../services/moduleService';
+import { ApiCourse, ApiModule } from '../../types/course';
 import Modal from '../../components/shared/Modal';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
 
 const CourseModules: React.FC = () => {
   const { courseId } = useParams();
   const navigate = useNavigate();
-  const { courses, chapters, updateCourse, addToast } = useStore();
+  const { addToast } = useStore();
 
-  const course = courses.find(c => c.id === courseId);
+  const [course, setCourse] = useState<ApiCourse | null>(null);
+  const [modules, setModules] = useState<ApiModule[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingModule, setEditingModule] = useState<Module | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string }>({ isOpen: false, id: '' });
+  const [editingModule, setEditingModule] = useState<ApiModule | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; title: string }>({ isOpen: false, id: '', title: '' });
 
   const [formData, setFormData] = useState({
     title: '',
-    chapters: [] as string[],
+    description: '',
   });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Fetch course and modules
+  const fetchData = useCallback(async () => {
+    if (!courseId) return;
+
+    setIsLoading(true);
+    try {
+      // Fetch course
+      const courseResponse = await courseService.getCourseById(courseId);
+      if (courseResponse.success && courseResponse.data) {
+        setCourse(courseResponse.data.course);
+      }
+
+      // Fetch modules for all core skills in this course
+      const modulesResponse = await moduleService.getModules();
+      if (modulesResponse.success && modulesResponse.data) {
+        // Filter modules that belong to core skills in this course
+        const courseSkillIds = courseResponse.data?.course.coreSkills?.map(cs => cs.coreSkill.id) || [];
+        const courseModules = modulesResponse.data.modules.filter(m =>
+          courseSkillIds.includes(m.coreSkillId)
+        );
+        setModules(courseModules);
+      }
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      addToast('error', 'Failed to load course data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [courseId, addToast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleOpenModal = (module?: ApiModule) => {
+    if (module) {
+      setEditingModule(module);
+      setFormData({
+        title: module.title,
+        description: module.description || ''
+      });
+    } else {
+      setEditingModule(null);
+      setFormData({ title: '', description: '' });
+    }
+    setErrors({});
+    setIsModalOpen(true);
+  };
+
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    if (!formData.title.trim()) {
+      newErrors.title = 'Module title is required';
+    } else if (formData.title.trim().length < 3) {
+      newErrors.title = 'Module title must be at least 3 characters';
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async () => {
+    if (!validate()) return;
+
+    setIsSubmitting(true);
+    try {
+      if (editingModule) {
+        const response = await moduleService.updateModule(editingModule.id, {
+          title: formData.title.trim(),
+          description: formData.description.trim() || undefined,
+        });
+        if (response.success) {
+          addToast('success', 'Module updated successfully');
+          setIsModalOpen(false);
+          fetchData();
+        } else {
+          addToast('error', response.error?.message || 'Failed to update module');
+        }
+      }
+    } catch (error: unknown) {
+      console.error('Failed to save module:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Failed to save module');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      const response = await moduleService.deleteModule(deleteConfirm.id);
+      if (response.success) {
+        addToast('success', 'Module deleted successfully');
+        fetchData();
+      } else {
+        addToast('error', response.error?.message || 'Failed to delete module');
+      }
+    } catch (error: unknown) {
+      console.error('Failed to delete module:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Failed to delete module');
+    } finally {
+      setDeleteConfirm({ isOpen: false, id: '', title: '' });
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
+          <span className="text-gray-500">Loading modules...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!course) {
     return (
@@ -31,57 +155,14 @@ const CourseModules: React.FC = () => {
     );
   }
 
-  const handleOpenModal = (module?: Module) => {
-    if (module) {
-      setEditingModule(module);
-      setFormData({ title: module.title, chapters: module.chapters });
-    } else {
-      setEditingModule(null);
-      setFormData({ title: '', chapters: [] });
-    }
-    setIsModalOpen(true);
-  };
-
-  const handleSubmit = () => {
-    if (formData.title.trim()) {
-      const newModules = editingModule
-        ? course.modules.map(m => m.id === editingModule.id ? { ...m, ...formData } : m)
-        : [...course.modules, { id: Math.random().toString(36).substr(2, 9), ...formData, createdAt: new Date() }];
-
-      updateCourse(course.id, { modules: newModules });
-      setIsModalOpen(false);
-      setFormData({ title: '', chapters: [] });
-      setEditingModule(null);
-    }
-  };
-
-  const handleDelete = (moduleId: string) => {
-    const newModules = course.modules.filter(m => m.id !== moduleId);
-    updateCourse(course.id, { modules: newModules });
-    addToast('success', 'Module deleted successfully');
-  };
-
-  const toggleChapter = (chapterId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      chapters: prev.chapters.includes(chapterId)
-        ? prev.chapters.filter(c => c !== chapterId)
-        : [...prev.chapters, chapterId],
-    }));
-  };
-
-  const getChapterName = (chapterId: string) => {
-    return chapters.find(c => c.id === chapterId)?.name || 'Unknown';
-  };
-
   return (
     <div className="space-y-8">
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ isOpen: false, id: '' })}
-        onConfirm={() => handleDelete(deleteConfirm.id)}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', title: '' })}
+        onConfirm={handleDelete}
         title="Delete Module"
-        message="Are you sure you want to delete this module?"
+        message={`Are you sure you want to delete "${deleteConfirm.title}"? This action cannot be undone.`}
         confirmText="Delete"
         type="danger"
       />
@@ -89,47 +170,45 @@ const CourseModules: React.FC = () => {
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingModule ? 'Edit Module' : 'Add Module'} size="lg">
         <div className="space-y-6">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 mb-2">Module Title *</label>
+            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-2">Module Title *</label>
             <input
               type="text"
               value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              placeholder="Enter module title"
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all"
+              onChange={(e) => {
+                setFormData({ ...formData, title: e.target.value });
+                if (errors.title) setErrors({ ...errors, title: '' });
+              }}
+              placeholder="Enter module title (min 3 chars)"
+              className={`w-full px-4 py-2.5 border ${errors.title ? 'border-red-300' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all`}
             />
+            {errors.title && <span className="text-xs text-red-500 mt-1">{errors.title}</span>}
           </div>
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 mb-2">Select Chapters</label>
-            <div className="border border-gray-200 rounded-xl p-4 max-h-48 overflow-y-auto">
-              {chapters.length === 0 ? (
-                <p className="text-sm text-gray-500">No chapters available.</p>
-              ) : (
-                <div className="space-y-2">
-                  {chapters.map((chapter) => (
-                    <label key={chapter.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.chapters.includes(chapter.id)}
-                        onChange={() => toggleChapter(chapter.id)}
-                        className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                      />
-                      <span className="text-sm text-gray-700">{chapter.name}</span>
-                      <span className="text-xs text-gray-400">({chapter.assessments.length} assessments)</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
+            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-2">Description</label>
+            <textarea
+              rows={3}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Module description (optional)"
+              className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all resize-none"
+            />
           </div>
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50">
+          <div className="flex justify-end gap-3 pt-4 border-t dark:border-gray-700">
+            <button
+              onClick={() => setIsModalOpen(false)}
+              disabled={isSubmitting}
+              className="px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+            >
               Cancel
             </button>
             <button
               onClick={handleSubmit}
-              disabled={!formData.title.trim()}
-              className="px-4 py-2 bg-primary-700 text-white rounded-xl hover:bg-primary-800 disabled:opacity-50"
+              disabled={!formData.title.trim() || isSubmitting}
+              className="px-4 py-2 bg-primary-700 text-white rounded-xl hover:bg-primary-800 disabled:opacity-50 flex items-center gap-2"
             >
+              {isSubmitting && (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              )}
               {editingModule ? 'Update' : 'Add'} Module
             </button>
           </div>
@@ -145,13 +224,12 @@ const CourseModules: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{course.title}</h1>
           <p className="text-sm text-gray-500 mt-1">Manage modules for this course</p>
         </div>
-
       </div>
 
       {/* Modules List or Empty State */}
-      {course.modules.length === 0 ? (
+      {modules.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-center min-h-[400px]">
-          <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6">
+          <div className="w-20 h-20 bg-gray-50 dark:bg-gray-700 rounded-full flex items-center justify-center mb-6">
             <span className="material-symbols-outlined text-4xl text-gray-400">view_module</span>
           </div>
           <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No Modules Added Yet</h3>
@@ -175,45 +253,49 @@ const CourseModules: React.FC = () => {
                 <tr>
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Sl.No</th>
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Module</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">No of chapters</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">No of assessments</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Core Skill</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Chapters</th>
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-                {course.modules.map((module, idx) => {
-                  const moduleChapters = chapters.filter(c => module.chapters.includes(c.id));
-                  const assessmentCount = moduleChapters.reduce((acc, c) => acc + c.assessments.length, 0);
-
-                  return (
-                    <tr key={module.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                      <td className="px-6 py-4 text-sm text-gray-500 font-medium">{idx + 1}</td>
-                      <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white">{module.title}</td>
-                      <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                        {module.chapters.length}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                        {assessmentCount}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => handleOpenModal(module)}
-                            className="p-2 rounded-lg text-gray-400 hover:text-primary-700 hover:bg-gray-100 transition-all"
-                          >
-                            <span className="material-symbols-outlined">edit</span>
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm({ isOpen: true, id: module.id })}
-                            className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
-                          >
-                            <span className="material-symbols-outlined">delete</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {modules.map((module, idx) => (
+                  <tr key={module.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                    <td className="px-6 py-4 text-sm text-gray-500 font-medium">{idx + 1}</td>
+                    <td className="px-6 py-4">
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">{module.title}</p>
+                      {module.description && (
+                        <p className="text-xs text-gray-500 mt-1 truncate max-w-xs">{module.description}</p>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                      {module.coreSkill?.name || '-'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
+                        {module._count?.chapters ?? 0} chapters
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleOpenModal(module)}
+                          className="p-2 rounded-lg text-gray-400 hover:text-primary-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all"
+                          title="Edit module"
+                        >
+                          <span className="material-symbols-outlined">edit</span>
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm({ isOpen: true, id: module.id, title: module.title })}
+                          className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                          title="Delete module"
+                        >
+                          <span className="material-symbols-outlined">delete</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

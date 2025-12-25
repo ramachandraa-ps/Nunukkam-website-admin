@@ -1,7 +1,11 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useStore } from '../../store/useStore';
+import Modal from '../../components/shared/Modal';
+import notificationService from '../../services/notificationService';
+import userService from '../../services/userService';
+import { NotificationType } from '../../types/reports';
 
-interface Notification {
+interface LocalNotification {
   id: string;
   type: 'info' | 'success' | 'warning' | 'error';
   title: string;
@@ -11,19 +15,59 @@ interface Notification {
   category: 'system' | 'user' | 'course' | 'college';
 }
 
+interface ApiUser {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+}
+
 const Notifications: React.FC = () => {
-  const navigate = useNavigate();
+  const { addToast } = useStore();
   const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [users, setUsers] = useState<ApiUser[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
-  // Dummy notifications data
-  const [notifications, setNotifications] = useState<Notification[]>([
+  const [sendForm, setSendForm] = useState({
+    userId: '',
+    title: '',
+    message: '',
+    type: 'INFO' as NotificationType,
+    sendToAll: false,
+  });
+
+  // Fetch users for the dropdown
+  const fetchUsers = useCallback(async () => {
+    setIsLoadingUsers(true);
+    try {
+      const response = await userService.getUsers();
+      if (response.success && response.data) {
+        setUsers(response.data.users);
+      }
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isSendModalOpen && users.length === 0) {
+      fetchUsers();
+    }
+  }, [isSendModalOpen, users.length, fetchUsers]);
+
+  // System notifications (local display)
+  const [notifications, setNotifications] = useState<LocalNotification[]>([
     {
       id: '1',
       type: 'success',
       title: 'New User Registered',
       message: 'John Smith has been successfully added as a Trainer.',
-      timestamp: '2024-01-15T10:30:00',
+      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       read: false,
       category: 'user',
     },
@@ -32,7 +76,7 @@ const Notifications: React.FC = () => {
       type: 'info',
       title: 'Course Published',
       message: 'Communication Skills course has been published and is now available.',
-      timestamp: '2024-01-15T09:15:00',
+      timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
       read: false,
       category: 'course',
     },
@@ -41,7 +85,7 @@ const Notifications: React.FC = () => {
       type: 'warning',
       title: 'Session Reminder',
       message: 'Upcoming session for ABC Engineering College scheduled in 2 hours.',
-      timestamp: '2024-01-15T08:00:00',
+      timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
       read: true,
       category: 'college',
     },
@@ -50,7 +94,7 @@ const Notifications: React.FC = () => {
       type: 'error',
       title: 'Upload Failed',
       message: 'Video upload for Chapter 3 failed. Please try again.',
-      timestamp: '2024-01-14T16:45:00',
+      timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       read: true,
       category: 'course',
     },
@@ -59,38 +103,67 @@ const Notifications: React.FC = () => {
       type: 'info',
       title: 'System Maintenance',
       message: 'Scheduled maintenance will occur on Sunday, 2 AM - 4 AM IST.',
-      timestamp: '2024-01-14T14:00:00',
+      timestamp: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
       read: false,
       category: 'system',
     },
-    {
-      id: '6',
-      type: 'success',
-      title: 'College Onboarded',
-      message: 'XYZ Institute of Technology has been successfully onboarded.',
-      timestamp: '2024-01-14T11:30:00',
-      read: true,
-      category: 'college',
-    },
-    {
-      id: '7',
-      type: 'info',
-      title: 'New Assessment Created',
-      message: 'Quiz assessment added to Soft Skills chapter.',
-      timestamp: '2024-01-13T15:20:00',
-      read: true,
-      category: 'course',
-    },
-    {
-      id: '8',
-      type: 'warning',
-      title: 'User Deactivated',
-      message: 'Sarah Johnson has been deactivated due to inactivity.',
-      timestamp: '2024-01-13T10:00:00',
-      read: true,
-      category: 'user',
-    },
   ]);
+
+  const handleSendNotification = async () => {
+    if (!sendForm.title || !sendForm.message) {
+      addToast('warning', 'Please fill in title and message');
+      return;
+    }
+
+    if (!sendForm.sendToAll && !sendForm.userId) {
+      addToast('warning', 'Please select a user or choose to send to all');
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      if (sendForm.sendToAll) {
+        // Bulk send to all users
+        const userIds = users.map(u => u.id);
+        const response = await notificationService.bulkCreateNotifications({
+          userIds,
+          title: sendForm.title,
+          message: sendForm.message,
+          type: sendForm.type,
+        });
+
+        if (response.success) {
+          addToast('success', `Notification sent to ${response.data?.count || userIds.length} users`);
+          setIsSendModalOpen(false);
+          setSendForm({ userId: '', title: '', message: '', type: 'INFO', sendToAll: false });
+        } else {
+          addToast('error', 'Failed to send notifications');
+        }
+      } else {
+        // Send to single user
+        const response = await notificationService.createNotification({
+          userId: sendForm.userId,
+          title: sendForm.title,
+          message: sendForm.message,
+          type: sendForm.type,
+        });
+
+        if (response.success) {
+          addToast('success', 'Notification sent successfully');
+          setIsSendModalOpen(false);
+          setSendForm({ userId: '', title: '', message: '', type: 'INFO', sendToAll: false });
+        } else {
+          addToast('error', 'Failed to send notification');
+        }
+      }
+    } catch (error: unknown) {
+      console.error('Failed to send notification:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Failed to send notification');
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -175,17 +248,139 @@ const Notifications: React.FC = () => {
     { id: 'college', label: 'Colleges', icon: 'school' },
   ];
 
+  const notificationTypes: { value: NotificationType; label: string }[] = [
+    { value: 'INFO', label: 'Information' },
+    { value: 'SUCCESS', label: 'Success' },
+    { value: 'WARNING', label: 'Warning' },
+    { value: 'ERROR', label: 'Error' },
+    { value: 'DEADLINE', label: 'Deadline' },
+    { value: 'ASSIGNMENT', label: 'Assignment' },
+    { value: 'SYSTEM', label: 'System' },
+  ];
+
   return (
     <div className="space-y-8">
+      {/* Send Notification Modal */}
+      <Modal isOpen={isSendModalOpen} onClose={() => setIsSendModalOpen(false)} title="Send Notification" size="md">
+        <div className="space-y-4">
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer mb-4">
+              <input
+                type="checkbox"
+                checked={sendForm.sendToAll}
+                onChange={(e) => setSendForm({ ...sendForm, sendToAll: e.target.checked, userId: '' })}
+                className="w-4 h-4 text-primary-700 border-gray-300 rounded focus:ring-primary-500"
+              />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Send to all users</span>
+            </label>
+          </div>
+
+          {!sendForm.sendToAll && (
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-1">
+                Recipient *
+              </label>
+              <select
+                value={sendForm.userId}
+                onChange={(e) => setSendForm({ ...sendForm, userId: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 dark:bg-gray-900 dark:text-white"
+                disabled={isLoadingUsers}
+              >
+                <option value="">Select a user</option>
+                {users.map(user => (
+                  <option key={user.id} value={user.id}>
+                    {user.username} ({user.email}) - {user.role}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-1">
+              Type
+            </label>
+            <select
+              value={sendForm.type}
+              onChange={(e) => setSendForm({ ...sendForm, type: e.target.value as NotificationType })}
+              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 dark:bg-gray-900 dark:text-white"
+            >
+              {notificationTypes.map(type => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-1">
+              Title *
+            </label>
+            <input
+              type="text"
+              value={sendForm.title}
+              onChange={(e) => setSendForm({ ...sendForm, title: e.target.value })}
+              placeholder="Enter notification title"
+              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 dark:bg-gray-900 dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-1">
+              Message *
+            </label>
+            <textarea
+              value={sendForm.message}
+              onChange={(e) => setSendForm({ ...sendForm, message: e.target.value })}
+              placeholder="Enter notification message"
+              rows={4}
+              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 dark:bg-gray-900 dark:text-white resize-none"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
+            <button
+              onClick={() => setIsSendModalOpen(false)}
+              className="px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSendNotification}
+              disabled={isSending || !sendForm.title || !sendForm.message || (!sendForm.sendToAll && !sendForm.userId)}
+              className="px-4 py-2 bg-primary-700 text-white rounded-xl hover:bg-primary-800 disabled:opacity-50 flex items-center gap-2"
+            >
+              {isSending ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-lg">send</span>
+                  Send Notification
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Notifications</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Stay updated with system activities and alerts
+            Stay updated with system activities and send notifications to users
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsSendModalOpen(true)}
+            className="px-4 py-2 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 dark:shadow-none flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-lg">send</span>
+            Send Notification
+          </button>
           {unreadCount > 0 && (
             <button
               onClick={markAllAsRead}

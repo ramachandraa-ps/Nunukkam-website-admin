@@ -42,13 +42,22 @@ const CourseModules = Loadable(lazy(() => import('../pages/CourseMaster/CourseMo
 const AddAssessment = Loadable(lazy(() => import('../pages/CourseMaster/AddAssessment')));
 const AddQuestions = Loadable(lazy(() => import('../pages/CourseMaster/AddQuestions')));
 const AddModule = Loadable(lazy(() => import('../pages/CourseMaster/AddModule')));
+const Assessments = Loadable(lazy(() => import('../pages/CourseMaster/Assessments')));
+const AssessmentDeadlines = Loadable(lazy(() => import('../pages/CourseMaster/AssessmentDeadlines')));
+
+// Grading
+const Grading = Loadable(lazy(() => import('../pages/Grading')));
 
 // Program Management (Colleges)
 const Colleges = Loadable(lazy(() => import('../pages/Colleges/Colleges')));
 const ProgramMaster = Loadable(lazy(() => import('../pages/Colleges/ProgramMaster')));
 const AddCollege = Loadable(lazy(() => import('../pages/Colleges/AddCollege')));
 const CollegeStudents = Loadable(lazy(() => import('../pages/Colleges/CollegeStudents')));
+const BulkUploadStudents = Loadable(lazy(() => import('../pages/Colleges/BulkUploadStudents')));
 const ScheduleSessions = Loadable(lazy(() => import('../pages/Colleges/ScheduleSessions')));
+const ManageBatches = Loadable(lazy(() => import('../pages/Colleges/ManageBatches')));
+const SessionAttendance = Loadable(lazy(() => import('../pages/Colleges/SessionAttendance')));
+const BatchAttendanceSummary = Loadable(lazy(() => import('../pages/Colleges/BatchAttendanceSummary')));
 
 // Reports
 const Reports = Loadable(lazy(() => import('../pages/Reports/Reports')));
@@ -72,6 +81,10 @@ export default function Router() {
         },
         {
             path: PATHS.AUTH.RESET_PASSWORD,
+            element: <ResetPassword />,
+        },
+        {
+            path: PATHS.AUTH.RESET_PASSWORD_TOKEN,
             element: <ResetPassword />,
         },
         {
@@ -108,6 +121,11 @@ export default function Router() {
                 { path: '/courses/chapters/:chapterId/assessments/add', element: <AddAssessment /> },
                 { path: '/courses/chapters/:chapterId/assessments/:assessmentId/edit', element: <AddAssessment /> },
                 { path: '/courses/chapters/:chapterId/assessments/:assessmentId/questions', element: <AddQuestions /> },
+                { path: PATHS.DASHBOARD.COURSES.ASSESSMENTS.ROOT, element: <Assessments /> },
+                { path: PATHS.DASHBOARD.COURSES.ASSESSMENTS.DEADLINES, element: <AssessmentDeadlines /> },
+
+                // Grading
+                { path: PATHS.DASHBOARD.GRADING.ROOT, element: <Grading /> },
 
                 // Program Management
                 { path: PATHS.DASHBOARD.PROGRAM.ROOT, element: <Colleges /> },
@@ -115,7 +133,13 @@ export default function Router() {
                 { path: PATHS.DASHBOARD.PROGRAM.ADD, element: <AddCollege /> },
                 { path: '/colleges/edit/:id', element: <AddCollege /> },
                 { path: '/colleges/:collegeId/students', element: <CollegeStudents /> },
+                { path: '/colleges/:collegeId/students/bulk-upload', element: <BulkUploadStudents /> },
+                { path: '/colleges/:collegeId/batches', element: <ManageBatches /> },
                 { path: '/colleges/:collegeId/schedule', element: <ScheduleSessions /> },
+
+                // Attendance
+                { path: '/attendance/session/:sessionId', element: <SessionAttendance /> },
+                { path: '/attendance/batch/:batchId', element: <BatchAttendanceSummary /> },
 
                 // Reports
                 { path: PATHS.DASHBOARD.REPORTS, element: <Reports /> },

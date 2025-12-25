@@ -1,83 +1,241 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useStore, Question } from '../../store/useStore';
+import { useStore } from '../../store/useStore';
+import assessmentService from '../../services/assessmentService';
+import questionService from '../../services/questionService';
+import { ApiAssessment, ApiQuestion, CreateQuestionRequest, UpdateQuestionRequest } from '../../types/course';
+import ConfirmDialog from '../../components/shared/ConfirmDialog';
+
+interface RubricItem {
+  question: string;
+  scale: string;
+}
 
 const AddQuestions: React.FC = () => {
   const { chapterId, assessmentId } = useParams();
   const navigate = useNavigate();
-  const { chapters, updateChapter, addToast } = useStore();
+  const { addToast } = useStore();
 
-  const chapter = chapters.find(c => c.id === chapterId);
-  const assessment = chapter?.assessments.find(a => a.id === assessmentId);
+  const [assessment, setAssessment] = useState<ApiAssessment | null>(null);
+  const [questions, setQuestions] = useState<ApiQuestion[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<ApiQuestion | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; text: string }>({ isOpen: false, id: '', text: '' });
 
-  const [questions, setQuestions] = useState<Question[]>(assessment?.questions || []);
-  const [currentQuestion, setCurrentQuestion] = useState<Partial<Question>>({
-    question: '',
+  const [currentQuestion, setCurrentQuestion] = useState<{
+    questionText: string;
+    optionA: string;
+    optionB: string;
+    optionC: string;
+    optionD: string;
+    correctAnswer: string;
+    explanation: string;
+    marks: number;
+    rubric: RubricItem[];
+  }>({
+    questionText: '',
     optionA: '',
     optionB: '',
     optionC: '',
     optionD: '',
     correctAnswer: '',
     explanation: '',
-    type: 'mcq',
+    marks: 1,
     rubric: [],
   });
 
-  // Check type dynamically based on the stored type
-  // Syncing with the new dropdown values: 'MCQ' or 'Non-MCQ'
-  const isMCQ = assessment?.type?.toLowerCase() === 'mcq' || assessment?.questionType === 'mcq';
+  // Determine if assessment is MCQ based on assessmentType
+  const isMCQ = assessment?.assessmentType?.submissionType === 'MCQ' ||
+                assessment?.assessmentType?.name?.toLowerCase() === 'mcq';
 
-  const handleAddQuestion = () => {
-    if (currentQuestion.question?.trim()) {
-      const newQuestion: Question = {
-        id: Math.random().toString(36).substr(2, 9),
-        question: currentQuestion.question!,
-        optionA: isMCQ ? currentQuestion.optionA : undefined,
-        optionB: isMCQ ? currentQuestion.optionB : undefined,
-        optionC: isMCQ ? currentQuestion.optionC : undefined,
-        optionD: isMCQ ? currentQuestion.optionD : undefined,
-        correctAnswer: isMCQ ? currentQuestion.correctAnswer : undefined,
-        explanation: isMCQ ? currentQuestion.explanation : undefined,
-        type: isMCQ ? 'mcq' : 'non-mcq',
-        rubric: isMCQ ? undefined : currentQuestion.rubric,
-      };
-      setQuestions([...questions, newQuestion]);
-      setCurrentQuestion({
-        question: '',
-        optionA: '',
-        optionB: '',
-        optionC: '',
-        optionD: '',
-        correctAnswer: '',
-        explanation: '',
-        type: isMCQ ? 'mcq' : 'non-mcq',
-        rubric: [],
-      });
-      addToast('success', 'Question added');
-    } else {
-      addToast('warning', 'Please enter a question or question stem');
+  // Fetch assessment and questions
+  const fetchData = useCallback(async () => {
+    if (!assessmentId) return;
+
+    setIsLoading(true);
+    try {
+      const [assessmentRes, questionsRes] = await Promise.all([
+        assessmentService.getAssessmentById(assessmentId),
+        questionService.getQuestions({ assessmentId }),
+      ]);
+
+      if (assessmentRes.success && assessmentRes.data) {
+        setAssessment(assessmentRes.data.assessment);
+      } else {
+        addToast('error', 'Failed to load assessment');
+      }
+
+      if (questionsRes.success && questionsRes.data) {
+        setQuestions(questionsRes.data.questions);
+      }
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      addToast('error', 'Failed to load assessment data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [assessmentId, addToast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const resetForm = () => {
+    setCurrentQuestion({
+      questionText: '',
+      optionA: '',
+      optionB: '',
+      optionC: '',
+      optionD: '',
+      correctAnswer: '',
+      explanation: '',
+      marks: 1,
+      rubric: [],
+    });
+    setEditingQuestion(null);
+  };
+
+  const handleEditQuestion = (question: ApiQuestion) => {
+    setEditingQuestion(question);
+
+    // Parse rubric if it exists
+    let rubric: RubricItem[] = [];
+    if (question.rubric && typeof question.rubric === 'object') {
+      const rubricObj = question.rubric as Record<string, unknown>;
+      if (Array.isArray(rubricObj.items)) {
+        rubric = rubricObj.items as RubricItem[];
+      }
+    }
+
+    setCurrentQuestion({
+      questionText: question.questionText,
+      optionA: question.optionA || '',
+      optionB: question.optionB || '',
+      optionC: question.optionC || '',
+      optionD: question.optionD || '',
+      correctAnswer: question.correctAnswer || '',
+      explanation: question.explanation || '',
+      marks: question.marks,
+      rubric,
+    });
+  };
+
+  const handleAddOrUpdateQuestion = async () => {
+    if (!currentQuestion.questionText.trim()) {
+      addToast('warning', 'Please enter a question');
+      return;
+    }
+
+    if (!assessmentId) return;
+
+    setIsSaving(true);
+    try {
+      if (editingQuestion) {
+        // Update existing question
+        const updateData: UpdateQuestionRequest = {
+          questionText: currentQuestion.questionText,
+          marks: currentQuestion.marks,
+        };
+
+        if (isMCQ) {
+          updateData.optionA = currentQuestion.optionA;
+          updateData.optionB = currentQuestion.optionB;
+          updateData.optionC = currentQuestion.optionC;
+          updateData.optionD = currentQuestion.optionD;
+          updateData.correctAnswer = currentQuestion.correctAnswer;
+          updateData.explanation = currentQuestion.explanation;
+        } else {
+          updateData.rubric = { items: currentQuestion.rubric };
+        }
+
+        const response = await questionService.updateQuestion(editingQuestion.id, updateData);
+        if (response.success) {
+          addToast('success', 'Question updated successfully');
+          fetchData();
+          resetForm();
+        } else {
+          addToast('error', response.error?.message || 'Failed to update question');
+        }
+      } else {
+        // Create new question
+        const createData: CreateQuestionRequest = {
+          assessmentId,
+          questionText: currentQuestion.questionText,
+          questionType: isMCQ ? 'MCQ' : 'SUBJECTIVE',
+          marks: currentQuestion.marks,
+        };
+
+        if (isMCQ) {
+          createData.optionA = currentQuestion.optionA;
+          createData.optionB = currentQuestion.optionB;
+          createData.optionC = currentQuestion.optionC;
+          createData.optionD = currentQuestion.optionD;
+          createData.correctAnswer = currentQuestion.correctAnswer;
+          createData.explanation = currentQuestion.explanation;
+        } else {
+          createData.rubric = { items: currentQuestion.rubric };
+        }
+
+        const response = await questionService.createQuestion(createData);
+        if (response.success) {
+          addToast('success', 'Question added successfully');
+          fetchData();
+          resetForm();
+        } else {
+          addToast('error', response.error?.message || 'Failed to add question');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save question:', error);
+      addToast('error', 'Failed to save question');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteQuestion = async () => {
+    try {
+      const response = await questionService.deleteQuestion(deleteConfirm.id);
+      if (response.success) {
+        addToast('success', 'Question deleted successfully');
+        fetchData();
+        if (editingQuestion?.id === deleteConfirm.id) {
+          resetForm();
+        }
+      } else {
+        addToast('error', response.error?.message || 'Failed to delete question');
+      }
+    } catch (error) {
+      console.error('Failed to delete question:', error);
+      addToast('error', 'Failed to delete question');
+    } finally {
+      setDeleteConfirm({ isOpen: false, id: '', text: '' });
     }
   };
 
   const handleAddRubric = (question: string, scale: string) => {
-    const newRubric = [...(currentQuestion.rubric || []), { question, scale }];
+    const newRubric = [...currentQuestion.rubric, { question, scale }];
     setCurrentQuestion(prev => ({ ...prev, rubric: newRubric }));
   };
 
-  const handleSubmit = () => {
-    if (chapter && assessment && questions.length > 0) {
-      const updatedAssessments = chapter.assessments.map(a =>
-        a.id === assessmentId ? { ...a, questions } : a
-      );
-      updateChapter(chapter.id, { assessments: updatedAssessments });
-      addToast('success', 'Assessment submitted successfully');
-      navigate('/courses/chapters');
-    } else {
-      addToast('warning', 'Please add at least one question');
-    }
+  const handleRemoveRubric = (index: number) => {
+    const newRubric = currentQuestion.rubric.filter((_, i) => i !== index);
+    setCurrentQuestion(prev => ({ ...prev, rubric: newRubric }));
   };
 
-  if (!chapter || !assessment) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
+          <span className="text-gray-500">Loading assessment...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!assessment) {
     return (
       <div className="text-center py-16">
         <span className="material-symbols-outlined text-6xl text-gray-300 mb-4">error</span>
@@ -91,142 +249,227 @@ const AddQuestions: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-24 px-4">
-      {/* Breadcrumb */}
-      {/* Breadcrumb removed - using global breadcrumb */}
+      <ConfirmDialog
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', text: '' })}
+        onConfirm={handleDeleteQuestion}
+        title="Delete Question"
+        message={`Are you sure you want to delete this question? "${deleteConfirm.text.substring(0, 50)}..."`}
+        confirmText="Delete"
+        type="danger"
+      />
 
       <div className="flex gap-8 items-start">
-        {/* Sidebar Actions */}
-        <div className="w-64 flex-shrink-0 space-y-2 hidden lg:block">
-          <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-            <div className="font-bold text-gray-700 mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined">settings</span>
-              Course Master
+        {/* Sidebar - Questions List */}
+        <div className="w-72 flex-shrink-0 space-y-4 hidden lg:block">
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
+            <div className="font-bold text-gray-700 dark:text-gray-200 mb-4 flex items-center gap-2">
+              <span className="material-symbols-outlined">quiz</span>
+              Questions ({questions.length})
             </div>
-            <div className="space-y-1">
-              <div className="px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 cursor-pointer">Add Core Skills</div>
-              <div className="px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 cursor-pointer">Add Assessment Types</div>
-              <div className="px-3 py-2 text-sm text-purple-700 bg-purple-50 font-medium rounded-lg">Add Chapters</div>
-              <div className="px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 cursor-pointer">Add Skills</div>
-              <div className="px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 cursor-pointer">Create course</div>
-            </div>
+
+            {questions.length === 0 ? (
+              <p className="text-sm text-gray-500">No questions added yet</p>
+            ) : (
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {questions.map((q, idx) => (
+                  <div
+                    key={q.id}
+                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                      editingQuestion?.id === q.id
+                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                        : 'border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div
+                        className="flex-1 min-w-0"
+                        onClick={() => handleEditQuestion(q)}
+                      >
+                        <p className="text-xs font-medium text-gray-500 mb-1">Q{idx + 1} • {q.marks} marks</p>
+                        <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{q.questionText}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleEditQuestion(q)}
+                          className="p-1 text-gray-400 hover:text-primary-600 rounded"
+                          title="Edit"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">edit</span>
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm({ isOpen: true, id: q.id, text: q.questionText })}
+                          className="p-1 text-gray-400 hover:text-red-600 rounded"
+                          title="Delete"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {editingQuestion && (
+              <button
+                onClick={resetForm}
+                className="mt-4 w-full px-4 py-2 text-sm text-primary-600 border border-primary-600 rounded-lg hover:bg-primary-50 transition-colors"
+              >
+                + Add New Question
+              </button>
+            )}
           </div>
         </div>
 
         {/* Content */}
         <div className="flex-1 space-y-4">
           {/* Assessment Title Header */}
-          <div className="bg-white rounded-t-xl border-x border-t border-gray-200 p-4 pb-0">
-            <h2 className="text-lg font-bold text-gray-800">Assessment: {assessment.title}</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800 dark:text-white">{assessment.title}</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {assessment.chapter?.name} • {assessment.kind === 'PRE_KBA' ? 'Pre-KBA' : 'Post-KBA'} • {assessment.assessmentType?.name}
+                </p>
+              </div>
+              <span className={`px-3 py-1 text-xs rounded-full font-medium ${
+                isMCQ ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
+              }`}>
+                {isMCQ ? 'MCQ' : 'Subjective'}
+              </span>
+            </div>
           </div>
 
           {/* Question Form Box */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm">
-            <div className="space-y-6">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-md font-bold text-gray-700 dark:text-gray-200">
+                {editingQuestion ? 'Edit Question' : `Add Question ${questions.length + 1}`}
+              </h3>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600 dark:text-gray-400">Marks:</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={currentQuestion.marks}
+                  onChange={(e) => setCurrentQuestion({ ...currentQuestion, marks: parseInt(e.target.value) || 1 })}
+                  className="w-16 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:border-primary-600 focus:outline-none dark:bg-gray-900"
+                />
+              </div>
+            </div>
 
+            <div className="space-y-6">
               {isMCQ ? (
                 <>
                   {/* MCQ Layout */}
-                  <div className="flex flex-col md:flex-row items-center gap-4">
-                    <label className="text-sm font-bold text-gray-700 w-32 shrink-0">Question {questions.length + 1}:</label>
-                    <input
-                      type="text"
-                      placeholder="Add question"
-                      value={currentQuestion.question}
-                      onChange={(e) => setCurrentQuestion({ ...currentQuestion, question: e.target.value })}
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:border-purple-600 focus:outline-none w-full"
+                  <div className="flex flex-col md:flex-row items-start gap-4">
+                    <label className="text-sm font-bold text-gray-700 dark:text-gray-300 w-32 shrink-0 pt-2">Question:</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Enter the question"
+                      value={currentQuestion.questionText}
+                      onChange={(e) => setCurrentQuestion({ ...currentQuestion, questionText: e.target.value })}
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-primary-600 focus:outline-none w-full resize-none dark:bg-gray-900 dark:text-white"
                     />
                   </div>
 
                   {['A', 'B', 'C', 'D'].map((opt) => (
                     <div key={opt} className="flex flex-col md:flex-row items-center gap-4">
-                      <label className="text-sm font-bold text-gray-700 w-32 shrink-0">Option {opt}:</label>
+                      <label className="text-sm font-bold text-gray-700 dark:text-gray-300 w-32 shrink-0">Option {opt}:</label>
                       <input
                         type="text"
-                        placeholder={`Add Option ${opt}`}
-                        value={currentQuestion[`option${opt}` as keyof Question] as string || ''}
+                        placeholder={`Enter option ${opt}`}
+                        value={currentQuestion[`option${opt}` as keyof typeof currentQuestion] as string || ''}
                         onChange={(e) => setCurrentQuestion({ ...currentQuestion, [`option${opt}`]: e.target.value })}
-                        className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:border-purple-600 focus:outline-none text-sm placeholder-gray-400"
+                        className="w-full md:w-96 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-primary-600 focus:outline-none text-sm placeholder-gray-400 dark:bg-gray-900 dark:text-white"
                       />
                     </div>
                   ))}
 
                   <div className="flex flex-col md:flex-row items-center gap-4 pt-2">
-                    <label className="text-sm font-bold text-gray-700 w-32 shrink-0">Correct Answer:</label>
-                    <div className="w-full md:w-auto">
-                      <select
-                        value={currentQuestion.correctAnswer}
-                        onChange={(e) => setCurrentQuestion({ ...currentQuestion, correctAnswer: e.target.value })}
-                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:border-purple-600 focus:outline-none w-full md:w-64 text-gray-600"
-                      >
-                        <option value="">Add answer choice</option>
-                        <option value="A">Option A</option>
-                        <option value="B">Option B</option>
-                        <option value="C">Option C</option>
-                        <option value="D">Option D</option>
-                      </select>
-                    </div>
+                    <label className="text-sm font-bold text-gray-700 dark:text-gray-300 w-32 shrink-0">Correct Answer:</label>
+                    <select
+                      value={currentQuestion.correctAnswer}
+                      onChange={(e) => setCurrentQuestion({ ...currentQuestion, correctAnswer: e.target.value })}
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:border-primary-600 focus:outline-none w-full md:w-96 dark:bg-gray-900 dark:text-white"
+                    >
+                      <option value="">Select correct answer</option>
+                      <option value="A">Option A</option>
+                      <option value="B">Option B</option>
+                      <option value="C">Option C</option>
+                      <option value="D">Option D</option>
+                    </select>
                   </div>
 
                   <div className="flex flex-col md:flex-row items-start gap-4 pt-2">
-                    <label className="text-sm font-bold text-gray-700 w-32 shrink-0 pt-2">Explanations:</label>
+                    <label className="text-sm font-bold text-gray-700 dark:text-gray-300 w-32 shrink-0 pt-2">Explanation:</label>
                     <textarea
-                      rows={2}
-                      placeholder="Add answer explanations here"
+                      rows={3}
+                      placeholder="Explain why this is the correct answer (optional)"
                       value={currentQuestion.explanation}
                       onChange={(e) => setCurrentQuestion({ ...currentQuestion, explanation: e.target.value })}
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:border-purple-600 focus:outline-none w-full resize-none placeholder-gray-400"
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:border-primary-600 focus:outline-none w-full resize-none placeholder-gray-400 dark:bg-gray-900 dark:text-white"
                     />
                   </div>
                 </>
               ) : (
-                // Non-MCQ Layout
+                // Subjective Question Layout
                 <div className="space-y-6">
-                  {/* Question Stem */}
-                  <div className="flex flex-col md:flex-row items-center gap-4">
-                    <label className="text-sm font-bold text-gray-700 w-32 shrink-0">Question Stem:</label>
-                    <input
-                      type="text"
-                      placeholder="Add question stem"
-                      value={currentQuestion.question}
-                      onChange={(e) => setCurrentQuestion({ ...currentQuestion, question: e.target.value })}
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:border-purple-600 focus:outline-none w-full placeholder-gray-400"
+                  <div className="flex flex-col md:flex-row items-start gap-4">
+                    <label className="text-sm font-bold text-gray-700 dark:text-gray-300 w-32 shrink-0 pt-2">Question:</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Enter the question stem"
+                      value={currentQuestion.questionText}
+                      onChange={(e) => setCurrentQuestion({ ...currentQuestion, questionText: e.target.value })}
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-primary-600 focus:outline-none w-full placeholder-gray-400 resize-none dark:bg-gray-900 dark:text-white"
                     />
                   </div>
 
                   {/* Rubric Section */}
                   <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-gray-700">Rubric for grading:</h3>
+                    <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300">Grading Rubric:</h4>
 
-                    {/* Existing Rubric Items Display */}
-                    {currentQuestion.rubric && currentQuestion.rubric.length > 0 && (
-                      <div className="bg-gray-50 p-4 rounded-lg space-y-2 mb-2">
+                    {/* Existing Rubric Items */}
+                    {currentQuestion.rubric.length > 0 && (
+                      <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg space-y-2">
                         {currentQuestion.rubric.map((r, i) => (
-                          <div key={i} className="text-sm flex gap-2">
-                            <span className="font-bold">{r.question}:</span>
-                            <span className="text-gray-600">{r.scale}</span>
+                          <div key={i} className="flex items-start justify-between gap-2 text-sm">
+                            <div className="flex-1">
+                              <span className="font-medium text-gray-700 dark:text-gray-300">{i + 1}. {r.question}</span>
+                              <p className="text-gray-500 mt-0.5">Scale: {r.scale}</p>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveRubric(i)}
+                              className="p-1 text-gray-400 hover:text-red-600 rounded"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">close</span>
+                            </button>
                           </div>
                         ))}
                       </div>
                     )}
 
-                    <div className="space-y-4">
+                    {/* Add Rubric Form */}
+                    <div className="space-y-4 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4">
                       <div className="flex flex-col md:flex-row items-center gap-4">
-                        <label className="text-sm font-bold text-gray-700 w-32 shrink-0">Question {(currentQuestion.rubric?.length || 0) + 1}:</label>
+                        <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-32 shrink-0">Criteria:</label>
                         <input
                           id="rubric-q"
-                          className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:border-purple-600 focus:outline-none text-sm placeholder-gray-400"
-                          placeholder="Add the question here"
+                          className="w-full md:flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-primary-600 focus:outline-none text-sm placeholder-gray-400 dark:bg-gray-900 dark:text-white"
+                          placeholder="What to evaluate (e.g., 'Clarity of explanation')"
                         />
                       </div>
                       <div className="flex flex-col md:flex-row items-center gap-4">
-                        <label className="text-sm font-bold text-gray-700 w-32 shrink-0">Define Scale:</label>
+                        <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-32 shrink-0">Scale:</label>
                         <input
                           id="rubric-s"
-                          className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:border-purple-600 focus:outline-none text-sm placeholder-gray-400"
-                          placeholder="Add the scale and logic here"
+                          className="w-full md:flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-primary-600 focus:outline-none text-sm placeholder-gray-400 dark:bg-gray-900 dark:text-white"
+                          placeholder="Scoring criteria (e.g., '0-2: Poor, 3-4: Good, 5: Excellent')"
                         />
                       </div>
-                      <div className="flex justify-end md:w-[26rem] md:ml-36">
+                      <div className="flex justify-end">
                         <button
                           type="button"
                           onClick={() => {
@@ -236,11 +479,13 @@ const AddQuestions: React.FC = () => {
                               handleAddRubric(q, s);
                               (document.getElementById('rubric-q') as HTMLInputElement).value = '';
                               (document.getElementById('rubric-s') as HTMLInputElement).value = '';
+                            } else {
+                              addToast('warning', 'Please fill both criteria and scale');
                             }
                           }}
-                          className="text-xs text-purple-600 hover:text-purple-700 font-medium underline"
+                          className="px-4 py-2 text-sm text-primary-600 border border-primary-600 rounded-lg hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
                         >
-                          + Add another rubric item
+                          + Add Rubric Item
                         </button>
                       </div>
                     </div>
@@ -249,25 +494,41 @@ const AddQuestions: React.FC = () => {
               )}
             </div>
 
-            {/* Add Next Question Button */}
-            <div className="flex justify-end mt-8">
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-3 mt-8">
+              {editingQuestion && (
+                <button
+                  onClick={resetForm}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
+                >
+                  Cancel
+                </button>
+              )}
               <button
-                onClick={handleAddQuestion}
-                className="px-6 py-2 border border-purple-600 text-purple-600 rounded-lg font-medium hover:bg-purple-50 transition-colors bg-white text-sm"
+                onClick={handleAddOrUpdateQuestion}
+                disabled={isSaving}
+                className="px-6 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 shadow-md transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                Add next question
+                {isSaving && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                )}
+                {editingQuestion ? 'Update Question' : 'Add Question'}
               </button>
             </div>
           </div>
 
-          {/* Submit Button */}
-          <div className="flex justify-end mt-6">
+          {/* Back Button */}
+          <div className="flex justify-between mt-6">
             <button
-              onClick={handleSubmit}
-              className="px-6 py-2 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700 shadow-md transition-all text-sm"
+              onClick={() => navigate(`/courses/chapters/${chapterId}/assessments`)}
+              className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm flex items-center gap-2"
             >
-              Submit Assessment
+              <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+              Back to Assessments
             </button>
+            <div className="text-sm text-gray-500">
+              Total: {questions.length} questions • {questions.reduce((sum, q) => sum + q.marks, 0)} marks
+            </div>
           </div>
         </div>
       </div>

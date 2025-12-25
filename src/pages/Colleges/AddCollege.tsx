@@ -1,69 +1,163 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
+import collegeService from '../../services/collegeService';
+import userService from '../../services/userService';
+import { CreateCollegeRequest, UpdateCollegeRequest } from '../../types/college';
+import { ApiUser } from '../../types/user';
 
 const AddCollege: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { colleges, users, addCollege, updateCollege } = useStore();
+  const { addToast } = useStore();
   const isEditing = !!id;
 
-  const coordinators = users.filter(u => u.status === 'active' && (u.role === 'Coordinator' || u.role === 'Admin'));
+  const [coordinators, setCoordinators] = useState<ApiUser[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
-    university: '',
+    affiliatedUniversity: '',
     city: '',
     state: '',
-    address: '',
+    fullAddress: '',
     pincode: '',
     pocName: '',
     pocNumber: '',
-    programCoordinator: '',
+    programCoordinatorId: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (isEditing) {
-      const college = colleges.find(c => c.id === id);
-      if (college) {
-        setFormData({
-          name: college.name,
-          university: college.university,
-          city: college.city,
-          state: college.state,
-          address: college.address,
-          pincode: college.pincode,
-          pocName: college.pocName,
-          pocNumber: college.pocNumber,
-          programCoordinator: college.programCoordinator,
-        });
+  // Fetch initial data
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // Fetch program coordinators
+      const usersResponse = await userService.getUsers({
+        role: 'PROGRAM_COORDINATOR',
+        status: 'ACTIVE',
+        limit: 100,
+      });
+      if (usersResponse.success && usersResponse.data) {
+        setCoordinators(usersResponse.data.users);
       }
+
+      // If editing, fetch college data
+      if (isEditing && id) {
+        const collegeResponse = await collegeService.getCollegeById(id);
+        if (collegeResponse.success && collegeResponse.data) {
+          const college = collegeResponse.data.college;
+          setFormData({
+            name: college.name,
+            affiliatedUniversity: college.affiliatedUniversity,
+            city: college.city,
+            state: college.state,
+            fullAddress: college.fullAddress || '',
+            pincode: college.pincode || '',
+            pocName: college.pocName,
+            pocNumber: college.pocNumber,
+            programCoordinatorId: college.programCoordinatorId || '',
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      addToast('error', 'Failed to load form data');
+    } finally {
+      setIsLoading(false);
     }
-  }, [id, colleges, isEditing]);
+  }, [id, isEditing, addToast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.name.trim()) newErrors.name = 'College name is required';
-    if (!formData.university.trim()) newErrors.university = 'University is required';
-    if (!formData.city.trim()) newErrors.city = 'City is required';
-    if (!formData.state.trim()) newErrors.state = 'State is required';
-    if (!formData.pocName.trim()) newErrors.pocName = 'POC name is required';
-    if (!formData.pocNumber.trim()) newErrors.pocNumber = 'POC number is required';
+    if (!formData.name.trim() || formData.name.length < 3) {
+      newErrors.name = 'College name must be at least 3 characters';
+    }
+    if (!formData.affiliatedUniversity.trim() || formData.affiliatedUniversity.length < 3) {
+      newErrors.affiliatedUniversity = 'University must be at least 3 characters';
+    }
+    if (!formData.city.trim() || formData.city.length < 2) {
+      newErrors.city = 'City must be at least 2 characters';
+    }
+    if (!formData.state.trim() || formData.state.length < 2) {
+      newErrors.state = 'State must be at least 2 characters';
+    }
+    if (!formData.pocName.trim() || formData.pocName.length < 3) {
+      newErrors.pocName = 'POC name must be at least 3 characters';
+    }
+    if (!formData.pocNumber.trim()) {
+      newErrors.pocNumber = 'POC number is required';
+    } else if (!/^[+]?[\d\s-]{10,}$/.test(formData.pocNumber)) {
+      newErrors.pocNumber = 'Please enter a valid phone number';
+    }
+    if (formData.pincode && !/^\d{6}$/.test(formData.pincode)) {
+      newErrors.pincode = 'Pincode must be exactly 6 digits';
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (validate()) {
-      if (isEditing) {
-        updateCollege(id!, formData);
+    if (!validate()) return;
+
+    setIsSubmitting(true);
+    try {
+      if (isEditing && id) {
+        // Update college
+        const updateData: UpdateCollegeRequest = {
+          name: formData.name,
+          affiliatedUniversity: formData.affiliatedUniversity,
+          city: formData.city,
+          state: formData.state,
+          fullAddress: formData.fullAddress || undefined,
+          pincode: formData.pincode || undefined,
+          pocName: formData.pocName,
+          pocNumber: formData.pocNumber,
+          programCoordinatorId: formData.programCoordinatorId || undefined,
+        };
+
+        const response = await collegeService.updateCollege(id, updateData);
+        if (response.success) {
+          addToast('success', 'College updated successfully');
+          navigate('/colleges');
+        } else {
+          addToast('error', response.error?.message || 'Failed to update college');
+        }
       } else {
-        addCollege(formData);
+        // Create college
+        const createData: CreateCollegeRequest = {
+          name: formData.name,
+          affiliatedUniversity: formData.affiliatedUniversity,
+          city: formData.city,
+          state: formData.state,
+          fullAddress: formData.fullAddress || undefined,
+          pincode: formData.pincode || undefined,
+          pocName: formData.pocName,
+          pocNumber: formData.pocNumber,
+          programCoordinatorId: formData.programCoordinatorId || undefined,
+        };
+
+        const response = await collegeService.createCollege(createData);
+        if (response.success) {
+          addToast('success', 'College created successfully');
+          navigate('/colleges');
+        } else {
+          addToast('error', response.error?.message || 'Failed to create college');
+        }
       }
-      navigate('/colleges');
+    } catch (error: unknown) {
+      console.error('Failed to save college:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Failed to save college');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -71,6 +165,17 @@ const AddCollege: React.FC = () => {
     setFormData({ ...formData, [field]: value });
     if (errors[field]) setErrors({ ...errors, [field]: '' });
   };
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto py-12 flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
+          <span className="text-gray-500">Loading...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -97,7 +202,7 @@ const AddCollege: React.FC = () => {
             type="text"
             value={formData.name}
             onChange={(e) => handleChange('name', e.target.value)}
-            placeholder="Enter college name"
+            placeholder="Enter college name (min 3 chars)"
             className={`w-full px-4 py-2.5 border ${errors.name ? 'border-red-300' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all`}
           />
           {errors.name && <span className="text-xs text-red-500 mt-1">{errors.name}</span>}
@@ -110,12 +215,12 @@ const AddCollege: React.FC = () => {
           </label>
           <input
             type="text"
-            value={formData.university}
-            onChange={(e) => handleChange('university', e.target.value)}
-            placeholder="Enter affiliated university"
-            className={`w-full px-4 py-2.5 border ${errors.university ? 'border-red-300' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all`}
+            value={formData.affiliatedUniversity}
+            onChange={(e) => handleChange('affiliatedUniversity', e.target.value)}
+            placeholder="Enter affiliated university (min 3 chars)"
+            className={`w-full px-4 py-2.5 border ${errors.affiliatedUniversity ? 'border-red-300' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all`}
           />
-          {errors.university && <span className="text-xs text-red-500 mt-1">{errors.university}</span>}
+          {errors.affiliatedUniversity && <span className="text-xs text-red-500 mt-1">{errors.affiliatedUniversity}</span>}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -128,7 +233,7 @@ const AddCollege: React.FC = () => {
               type="text"
               value={formData.city}
               onChange={(e) => handleChange('city', e.target.value)}
-              placeholder="Enter city"
+              placeholder="Enter city (min 2 chars)"
               className={`w-full px-4 py-2.5 border ${errors.city ? 'border-red-300' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all`}
             />
             {errors.city && <span className="text-xs text-red-500 mt-1">{errors.city}</span>}
@@ -143,7 +248,7 @@ const AddCollege: React.FC = () => {
               type="text"
               value={formData.state}
               onChange={(e) => handleChange('state', e.target.value)}
-              placeholder="Enter state"
+              placeholder="Enter state (min 2 chars)"
               className={`w-full px-4 py-2.5 border ${errors.state ? 'border-red-300' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all`}
             />
             {errors.state && <span className="text-xs text-red-500 mt-1">{errors.state}</span>}
@@ -157,9 +262,9 @@ const AddCollege: React.FC = () => {
           </label>
           <textarea
             rows={2}
-            value={formData.address}
-            onChange={(e) => handleChange('address', e.target.value)}
-            placeholder="Enter full address"
+            value={formData.fullAddress}
+            onChange={(e) => handleChange('fullAddress', e.target.value)}
+            placeholder="Enter full address (optional)"
             className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 resize-none transition-all"
           />
         </div>
@@ -172,11 +277,12 @@ const AddCollege: React.FC = () => {
           <input
             type="text"
             value={formData.pincode}
-            onChange={(e) => handleChange('pincode', e.target.value)}
-            placeholder="Enter pincode"
+            onChange={(e) => handleChange('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="Enter 6-digit pincode"
             maxLength={6}
-            className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all"
+            className={`w-full px-4 py-2.5 border ${errors.pincode ? 'border-red-300' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all`}
           />
+          {errors.pincode && <span className="text-xs text-red-500 mt-1">{errors.pincode}</span>}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -189,7 +295,7 @@ const AddCollege: React.FC = () => {
               type="text"
               value={formData.pocName}
               onChange={(e) => handleChange('pocName', e.target.value)}
-              placeholder="Point of contact name"
+              placeholder="Point of contact name (min 3 chars)"
               className={`w-full px-4 py-2.5 border ${errors.pocName ? 'border-red-300' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all`}
             />
             {errors.pocName && <span className="text-xs text-red-500 mt-1">{errors.pocName}</span>}
@@ -217,13 +323,15 @@ const AddCollege: React.FC = () => {
             Program Coordinator
           </label>
           <select
-            value={formData.programCoordinator}
-            onChange={(e) => handleChange('programCoordinator', e.target.value)}
+            value={formData.programCoordinatorId}
+            onChange={(e) => handleChange('programCoordinatorId', e.target.value)}
             className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all"
           >
-            <option value="">Select coordinator</option>
+            <option value="">Select coordinator (optional)</option>
             {coordinators.map(user => (
-              <option key={user.id} value={user.name}>{user.name} ({user.designation})</option>
+              <option key={user.id} value={user.id}>
+                {user.username} ({user.email})
+              </option>
             ))}
           </select>
         </div>
@@ -233,14 +341,19 @@ const AddCollege: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/colleges')}
-            className="px-6 py-2.5 border border-gray-200 text-gray-600 rounded-xl font-medium hover:bg-gray-50 transition-all"
+            disabled={isSubmitting}
+            className="px-6 py-2.5 border border-gray-200 text-gray-600 rounded-xl font-medium hover:bg-gray-50 transition-all disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="px-8 py-2.5 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 transition-all hover:-translate-y-0.5"
+            disabled={isSubmitting}
+            className="px-8 py-2.5 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:transform-none flex items-center gap-2"
           >
+            {isSubmitting && (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            )}
             {isEditing ? 'Update College' : 'Create College'}
           </button>
         </div>

@@ -1,30 +1,129 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
+import courseService from '../../services/courseService';
+import { ApiCourse, CourseStatus } from '../../types/course';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
 
 const Courses: React.FC = () => {
   const navigate = useNavigate();
-  const { courses, coreSkills, deleteCourse } = useStore();
+  const { addToast } = useStore();
+
+  const [courses, setCourses] = useState<ApiCourse[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string }>({ isOpen: false, id: '' });
+  const [statusFilter, setStatusFilter] = useState<CourseStatus | ''>('');
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; title: string }>({ isOpen: false, id: '', title: '' });
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Fetch courses from API
+  const fetchCourses = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await courseService.getCourses({
+        status: statusFilter || undefined,
+      });
+      if (response.success && response.data) {
+        setCourses(response.data.courses);
+      } else {
+        addToast('error', response.error?.message || 'Failed to load courses');
+      }
+    } catch (error) {
+      console.error('Failed to fetch courses:', error);
+      addToast('error', 'Failed to load courses');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [addToast, statusFilter]);
+
+  useEffect(() => {
+    fetchCourses();
+  }, [fetchCourses]);
 
   const filteredCourses = courses.filter(course =>
     course.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const getCoreSkillNames = (skillIds: string[]) => {
-    return skillIds.map(id => coreSkills.find(s => s.id === id)?.name || 'Unknown').join(', ');
+  const getCoreSkillNames = (course: ApiCourse) => {
+    if (!course.coreSkills || course.coreSkills.length === 0) return 'None';
+    return course.coreSkills.map(cs => cs.coreSkill.name).join(', ');
   };
+
+  const handleDelete = async () => {
+    try {
+      const response = await courseService.deleteCourse(deleteConfirm.id);
+      if (response.success) {
+        addToast('success', 'Course deleted successfully');
+        fetchCourses();
+      } else {
+        addToast('error', response.error?.message || 'Failed to delete course');
+      }
+    } catch (error: unknown) {
+      console.error('Failed to delete course:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Failed to delete course');
+    } finally {
+      setDeleteConfirm({ isOpen: false, id: '', title: '' });
+    }
+  };
+
+  const handleStatusAction = async (courseId: string, action: 'publish' | 'unpublish' | 'archive') => {
+    setActionLoading(courseId);
+    try {
+      let response;
+      if (action === 'publish') {
+        response = await courseService.publishCourse(courseId);
+      } else if (action === 'unpublish') {
+        response = await courseService.unpublishCourse(courseId);
+      } else {
+        response = await courseService.archiveCourse(courseId);
+      }
+
+      if (response.success) {
+        addToast('success', `Course ${action}ed successfully`);
+        fetchCourses();
+      } else {
+        addToast('error', response.error?.message || `Failed to ${action} course`);
+      }
+    } catch (error: unknown) {
+      console.error(`Failed to ${action} course:`, error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || `Failed to ${action} course`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const getStatusBadgeClass = (status: CourseStatus) => {
+    switch (status) {
+      case 'PUBLISHED':
+        return 'bg-green-500/90 text-white';
+      case 'ARCHIVED':
+        return 'bg-gray-500/90 text-white';
+      default:
+        return 'bg-amber-400/90 text-black';
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
+          <span className="text-gray-500">Loading courses...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ isOpen: false, id: '' })}
-        onConfirm={() => deleteCourse(deleteConfirm.id)}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', title: '' })}
+        onConfirm={handleDelete}
         title="Delete Course"
-        message="Are you sure you want to delete this course? This action cannot be undone."
+        message={`Are you sure you want to delete "${deleteConfirm.title}"? This action cannot be undone.`}
         confirmText="Delete"
         type="danger"
       />
@@ -74,15 +173,27 @@ const Courses: React.FC = () => {
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row justify-between gap-4 pb-6 border-b border-gray-100 dark:border-gray-700">
-        <div className="relative max-w-md w-full group">
-          <span className="material-symbols-outlined absolute left-3 top-2.5 text-gray-400 group-focus-within:text-primary-700 transition-colors">search</span>
-          <input
-            type="text"
-            placeholder="Search by course title..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-2.5 w-full border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all"
-          />
+        <div className="flex gap-4 flex-1">
+          <div className="relative max-w-md w-full group">
+            <span className="material-symbols-outlined absolute left-3 top-2.5 text-gray-400 group-focus-within:text-primary-700 transition-colors">search</span>
+            <input
+              type="text"
+              placeholder="Search by course title..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2.5 w-full border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as CourseStatus | '')}
+            className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 focus:outline-none focus:border-primary-700"
+          >
+            <option value="">All Status</option>
+            <option value="DRAFT">Draft</option>
+            <option value="PUBLISHED">Published</option>
+            <option value="ARCHIVED">Archived</option>
+          </select>
         </div>
         <button
           onClick={() => navigate('/courses/create')}
@@ -113,22 +224,22 @@ const Courses: React.FC = () => {
               <div className="h-40 bg-gradient-to-br from-primary-600 to-primary-800 relative">
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                 <div className="absolute bottom-4 left-4 right-4">
-                  <span className={`px-2.5 py-1 rounded-lg backdrop-blur-sm text-[10px] uppercase font-bold tracking-wider mb-2 inline-block ${course.status === 'Published' ? 'bg-green-500/90 text-white' : 'bg-amber-400/90 text-black'}`}>
+                  <span className={`px-2.5 py-1 rounded-lg backdrop-blur-sm text-[10px] uppercase font-bold tracking-wider mb-2 inline-block ${getStatusBadgeClass(course.status)}`}>
                     {course.status}
                   </span>
                   <h3 className="font-bold text-lg text-white leading-tight">{course.title}</h3>
                 </div>
               </div>
               <div className="p-6 flex flex-col flex-grow">
-                <p className="text-sm text-gray-500 flex-grow mb-4 leading-relaxed line-clamp-2">{course.description}</p>
+                <p className="text-sm text-gray-500 flex-grow mb-4 leading-relaxed line-clamp-2">{course.description || 'No description'}</p>
                 <div className="text-xs text-gray-400 mb-4">
-                  <span className="font-medium">Core Skills:</span> {getCoreSkillNames(course.coreSkills) || 'None'}
+                  <span className="font-medium">Core Skills:</span> {getCoreSkillNames(course)}
                 </div>
                 <div className="flex items-center justify-between pt-4 border-t border-gray-100 dark:border-gray-700">
                   <div className="flex gap-2">
                     <span className="px-3 py-1 rounded-lg text-xs font-bold bg-gray-50 text-gray-600 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-sm">view_module</span>
-                      {course.modules.length} Modules
+                      <span className="material-symbols-outlined text-sm">category</span>
+                      {course._count?.coreSkills ?? 0} Skills
                     </span>
                     <span className="px-3 py-1 rounded-lg text-xs font-bold bg-gray-50 text-gray-600 flex items-center gap-1">
                       <span className="material-symbols-outlined text-sm">schedule</span>
@@ -136,6 +247,36 @@ const Courses: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                    {course.status === 'DRAFT' && (
+                      <button
+                        onClick={() => handleStatusAction(course.id, 'publish')}
+                        disabled={actionLoading === course.id}
+                        className="text-gray-400 hover:text-green-600 p-2 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
+                        title="Publish"
+                      >
+                        <span className="material-symbols-outlined">publish</span>
+                      </button>
+                    )}
+                    {course.status === 'PUBLISHED' && (
+                      <>
+                        <button
+                          onClick={() => handleStatusAction(course.id, 'unpublish')}
+                          disabled={actionLoading === course.id}
+                          className="text-gray-400 hover:text-amber-600 p-2 rounded-lg hover:bg-amber-50 transition-colors disabled:opacity-50"
+                          title="Unpublish"
+                        >
+                          <span className="material-symbols-outlined">unpublished</span>
+                        </button>
+                        <button
+                          onClick={() => handleStatusAction(course.id, 'archive')}
+                          disabled={actionLoading === course.id}
+                          className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
+                          title="Archive"
+                        >
+                          <span className="material-symbols-outlined">archive</span>
+                        </button>
+                      </>
+                    )}
                     <button
                       onClick={() => navigate(`/courses/${course.id}/modules`)}
                       className="text-gray-400 hover:text-primary-700 p-2 rounded-lg hover:bg-gray-50 transition-colors"
@@ -151,7 +292,7 @@ const Courses: React.FC = () => {
                       <span className="material-symbols-outlined">edit</span>
                     </button>
                     <button
-                      onClick={() => setDeleteConfirm({ isOpen: true, id: course.id })}
+                      onClick={() => setDeleteConfirm({ isOpen: true, id: course.id, title: course.title })}
                       className="text-gray-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"
                       title="Delete"
                     >

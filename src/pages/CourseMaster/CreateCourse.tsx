@@ -1,66 +1,129 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
+import courseService from '../../services/courseService';
+import coreSkillService from '../../services/coreSkillService';
+import { ApiCoreSkill } from '../../types/course';
 
 const CreateCourse: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { courses, coreSkills, addCourse, updateCourse } = useStore();
+  const { addToast } = useStore();
   const isEditing = !!id;
+
+  const [coreSkills, setCoreSkills] = useState<ApiCoreSkill[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    coreSkills: [] as string[],
+    coreSkillIds: [] as string[],
     durationDays: 30,
-    status: 'Draft' as 'Draft' | 'Published',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (isEditing) {
-      const course = courses.find(c => c.id === id);
-      if (course) {
-        setFormData({
-          title: course.title,
-          description: course.description,
-          coreSkills: course.coreSkills,
-          durationDays: course.durationDays,
-          status: course.status,
-        });
+  // Fetch core skills and course data if editing
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // Fetch core skills
+      const skillsResponse = await coreSkillService.getCoreSkills();
+      if (skillsResponse.success && skillsResponse.data) {
+        setCoreSkills(skillsResponse.data.coreSkills);
       }
+
+      // If editing, fetch course data
+      if (isEditing && id) {
+        const courseResponse = await courseService.getCourseById(id);
+        if (courseResponse.success && courseResponse.data) {
+          const course = courseResponse.data.course;
+          setFormData({
+            title: course.title,
+            description: course.description || '',
+            coreSkillIds: course.coreSkills?.map(cs => cs.coreSkill.id) || [],
+            durationDays: course.durationDays,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      addToast('error', 'Failed to load form data');
+    } finally {
+      setIsLoading(false);
     }
-  }, [id, courses, isEditing]);
+  }, [id, isEditing, addToast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.title.trim()) newErrors.title = 'Course title is required';
-    if (!formData.description.trim()) newErrors.description = 'Description is required';
-    if (formData.durationDays < 1) newErrors.durationDays = 'Duration must be at least 1 day';
-    if (formData.coreSkills.length === 0) newErrors.coreSkills = 'Select at least one core skill';
+    if (!formData.title.trim()) {
+      newErrors.title = 'Course title is required';
+    } else if (formData.title.trim().length < 3) {
+      newErrors.title = 'Course title must be at least 3 characters';
+    }
+    if (formData.durationDays < 1) {
+      newErrors.durationDays = 'Duration must be at least 1 day';
+    }
+    if (formData.coreSkillIds.length === 0) {
+      newErrors.coreSkills = 'Select at least one core skill';
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (validate()) {
-      if (isEditing) {
-        updateCourse(id!, formData);
+    if (!validate()) return;
+
+    setIsSubmitting(true);
+    try {
+      if (isEditing && id) {
+        const response = await courseService.updateCourse(id, {
+          title: formData.title.trim(),
+          description: formData.description.trim() || undefined,
+          durationDays: formData.durationDays,
+          coreSkillIds: formData.coreSkillIds,
+        });
+        if (response.success) {
+          addToast('success', 'Course updated successfully');
+          navigate('/courses');
+        } else {
+          addToast('error', response.error?.message || 'Failed to update course');
+        }
       } else {
-        addCourse({ ...formData, modules: [] });
+        const response = await courseService.createCourse({
+          title: formData.title.trim(),
+          description: formData.description.trim() || undefined,
+          durationDays: formData.durationDays,
+          coreSkillIds: formData.coreSkillIds,
+        });
+        if (response.success) {
+          addToast('success', 'Course created successfully');
+          navigate('/courses');
+        } else {
+          addToast('error', response.error?.message || 'Failed to create course');
+        }
       }
-      navigate('/courses');
+    } catch (error: unknown) {
+      console.error('Failed to save course:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Failed to save course');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const toggleCoreSkill = (skillId: string) => {
     setFormData(prev => ({
       ...prev,
-      coreSkills: prev.coreSkills.includes(skillId)
-        ? prev.coreSkills.filter(s => s !== skillId)
-        : [...prev.coreSkills, skillId],
+      coreSkillIds: prev.coreSkillIds.includes(skillId)
+        ? prev.coreSkillIds.filter(s => s !== skillId)
+        : [...prev.coreSkillIds, skillId],
     }));
     if (errors.coreSkills) setErrors({ ...errors, coreSkills: '' });
   };
@@ -68,6 +131,17 @@ const CreateCourse: React.FC = () => {
   const getSkillName = (skillId: string) => {
     return coreSkills.find(s => s.id === skillId)?.name || 'Unknown';
   };
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto py-12 flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
+          <span className="text-gray-500">Loading...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -97,45 +171,28 @@ const CreateCourse: React.FC = () => {
               setFormData({ ...formData, title: e.target.value });
               if (errors.title) setErrors({ ...errors, title: '' });
             }}
-            placeholder="Enter the title of the course"
+            placeholder="Enter the title of the course (min 3 chars)"
             className={`w-full px-4 py-3 rounded-xl border ${errors.title ? 'border-red-300 focus:ring-red-200' : 'border-gray-200 dark:border-gray-600 focus:border-primary-700 focus:ring-primary-700/20'} bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 transition-all`}
           />
           {errors.title && <span className="text-xs text-red-500 mt-1">{errors.title}</span>}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Duration */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-2">
-              Course Duration (in days) *
-            </label>
-            <input
-              type="number"
-              value={formData.durationDays}
-              onChange={(e) => {
-                setFormData({ ...formData, durationDays: parseInt(e.target.value) || 1 });
-                if (errors.durationDays) setErrors({ ...errors, durationDays: '' });
-              }}
-              min={1}
-              className={`w-full px-4 py-3 rounded-xl border ${errors.durationDays ? 'border-red-300 focus:ring-red-200' : 'border-gray-200 dark:border-gray-600 focus:border-primary-700 focus:ring-primary-700/20'} bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 transition-all`}
-            />
-            {errors.durationDays && <span className="text-xs text-red-500 mt-1">{errors.durationDays}</span>}
-          </div>
-
-          {/* Status */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-2">
-              Status
-            </label>
-            <select
-              value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value as typeof formData.status })}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all"
-            >
-              <option value="Draft">Draft</option>
-              <option value="Published">Published</option>
-            </select>
-          </div>
+        {/* Duration */}
+        <div className="max-w-xs">
+          <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-2">
+            Course Duration (in days) *
+          </label>
+          <input
+            type="number"
+            value={formData.durationDays}
+            onChange={(e) => {
+              setFormData({ ...formData, durationDays: parseInt(e.target.value) || 1 });
+              if (errors.durationDays) setErrors({ ...errors, durationDays: '' });
+            }}
+            min={1}
+            className={`w-full px-4 py-3 rounded-xl border ${errors.durationDays ? 'border-red-300 focus:ring-red-200' : 'border-gray-200 dark:border-gray-600 focus:border-primary-700 focus:ring-primary-700/20'} bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 transition-all`}
+          />
+          {errors.durationDays && <span className="text-xs text-red-500 mt-1">{errors.durationDays}</span>}
         </div>
 
         {/* Core Skills */}
@@ -159,22 +216,22 @@ const CreateCourse: React.FC = () => {
                     type="button"
                     onClick={() => toggleCoreSkill(skill.id)}
                     className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                      formData.coreSkills.includes(skill.id)
+                      formData.coreSkillIds.includes(skill.id)
                         ? 'bg-primary-700 text-white'
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
                   >
                     {skill.name}
-                    {formData.coreSkills.includes(skill.id) && <span className="ml-1">✓</span>}
+                    {formData.coreSkillIds.includes(skill.id) && <span className="ml-1">✓</span>}
                   </button>
                 ))}
               </div>
             )}
           </div>
           {errors.coreSkills && <span className="text-xs text-red-500 mt-1">{errors.coreSkills}</span>}
-          {formData.coreSkills.length > 0 && (
+          {formData.coreSkillIds.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">
-              {formData.coreSkills.map(skillId => (
+              {formData.coreSkillIds.map(skillId => (
                 <span key={skillId} className="bg-primary-50 text-primary-700 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-2">
                   {getSkillName(skillId)}
                   <button type="button" onClick={() => toggleCoreSkill(skillId)} className="hover:text-primary-900">
@@ -189,7 +246,7 @@ const CreateCourse: React.FC = () => {
         {/* Description */}
         <div>
           <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-2">
-            Course Description *
+            Course Description
           </label>
           <textarea
             rows={4}
@@ -197,15 +254,13 @@ const CreateCourse: React.FC = () => {
             onChange={(e) => {
               if (e.target.value.length <= 500) {
                 setFormData({ ...formData, description: e.target.value });
-                if (errors.description) setErrors({ ...errors, description: '' });
               }
             }}
-            placeholder="Provide a detailed description..."
-            className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-300 focus:ring-red-200' : 'border-gray-200 dark:border-gray-600 focus:border-primary-700 focus:ring-primary-700/20'} bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 resize-none transition-all`}
+            placeholder="Provide a detailed description (optional)..."
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 focus:border-primary-700 focus:ring-primary-700/20 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 resize-none transition-all"
           />
-          <div className="flex justify-between mt-1">
-            {errors.description && <span className="text-xs text-red-500">{errors.description}</span>}
-            <span className="text-xs text-right text-gray-400 font-medium ml-auto">{formData.description.length} / 500</span>
+          <div className="flex justify-end mt-1">
+            <span className="text-xs text-gray-400 font-medium">{formData.description.length} / 500</span>
           </div>
         </div>
 
@@ -214,14 +269,19 @@ const CreateCourse: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/courses')}
-            className="px-6 py-3 rounded-xl bg-gray-50 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 font-medium hover:bg-gray-100 transition-colors"
+            disabled={isSubmitting}
+            className="px-6 py-3 rounded-xl bg-gray-50 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 font-medium hover:bg-gray-100 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="px-8 py-3 rounded-xl bg-primary-700 text-white font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 transition-all hover:-translate-y-0.5"
+            disabled={isSubmitting}
+            className="px-8 py-3 rounded-xl bg-primary-700 text-white font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:transform-none flex items-center gap-2"
           >
+            {isSubmitting && (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            )}
             {isEditing ? 'Update Course' : 'Create Course'}
           </button>
         </div>

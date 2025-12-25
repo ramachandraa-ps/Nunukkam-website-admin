@@ -13,6 +13,7 @@ export const PATHS = {
     AUTH: {
         LOGIN: '/login',
         RESET_PASSWORD: '/reset-password',
+        RESET_PASSWORD_TOKEN: '/reset-password/:token',
     },
     DASHBOARD: {
         ROOT: '/dashboard',
@@ -38,6 +39,8 @@ export const PATHS = {
                 ADD_ASSESSMENT: (chapterId: string) => `/courses/chapters/${chapterId}/assessments/add`,
             },
             ASSESSMENTS: {
+                ROOT: '/courses/assessments',
+                DEADLINES: '/courses/assessment-deadlines',
                 EDIT: (chapterId: string, assessmentId: string) => `/courses/chapters/${chapterId}/assessments/${assessmentId}/edit`,
                 QUESTIONS: (chapterId: string, assessmentId: string) => `/courses/chapters/${chapterId}/assessments/${assessmentId}/questions`,
             },
@@ -47,12 +50,16 @@ export const PATHS = {
             },
             COURSE_CORE_SKILLS: (courseId: string) => `/courses/${courseId}/core-skills`,
         },
+        GRADING: {
+            ROOT: '/grading',
+        },
         PROGRAM: {
             ROOT: '/colleges',
             MASTER: '/colleges/master',
             ADD: '/colleges/add',
             EDIT: (id: string) => `/colleges/edit/${id}`,
             STUDENTS: (collegeId: string) => `/colleges/${collegeId}/students`,
+            BATCHES: (collegeId: string) => `/colleges/${collegeId}/batches`,
             SCHEDULE: (collegeId: string) => `/colleges/${collegeId}/schedule`,
         },
         REPORTS: '/reports',

@@ -1,104 +1,188 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/useStore';
+import reportService from '../../services/reportService';
+import collegeService from '../../services/collegeService';
+import courseService from '../../services/courseService';
+import studentService from '../../services/studentService';
+import userService from '../../services/userService';
+import { DashboardStats } from '../../types/reports';
+import { ApiCollege } from '../../types/college';
+import { ApiCourse } from '../../types/course';
+import { ApiStudent } from '../../types/student';
+import { ApiUser } from '../../types/user';
 
 type TabType = 'overview' | 'students' | 'courses' | 'colleges' | 'trainers';
 
+interface CollegeWithStats extends ApiCollege {
+  studentCount: number;
+  batchCount: number;
+  sessionCount: number;
+}
+
 const Reports: React.FC = () => {
-  const { colleges, courses, users, chapters, coreSkills, skills, addToast } = useStore();
+  const { addToast } = useStore();
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [collegeFilter, setCollegeFilter] = useState('');
 
-  // Calculate comprehensive metrics
-  const totalStudents = colleges.reduce((acc, c) => acc + c.students.length, 0);
-  const trainers = users.filter(u => u.role === 'Trainer' && u.status === 'active');
-  const totalColleges = colleges.length;
-  const publishedCourses = courses.filter(c => c.status === 'Published');
-  const draftCourses = courses.filter(c => c.status === 'Draft');
-  const totalAssessments = chapters.reduce((acc, ch) => acc + ch.assessments.length, 0);
-  const totalSessions = colleges.reduce((acc, c) => acc + c.schedules.length, 0);
-  const totalModules = courses.reduce((acc, c) => acc + c.modules.length, 0);
+  // API Data
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [colleges, setColleges] = useState<CollegeWithStats[]>([]);
+  const [courses, setCourses] = useState<ApiCourse[]>([]);
+  const [students, setStudents] = useState<ApiStudent[]>([]);
+  const [trainers, setTrainers] = useState<ApiUser[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Get unique batches across all colleges
-  const allBatches = colleges.flatMap(c => c.students.map(s => s.batch));
-  const uniqueBatches = [...new Set(allBatches)];
+  // Fetch all data from API
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [statsRes, collegesRes, coursesRes, studentsRes, trainersRes] = await Promise.all([
+        reportService.getDashboardStats(),
+        collegeService.getColleges({ limit: 100 }),
+        courseService.getCourses({ limit: 100 }),
+        studentService.getStudents({ limit: 500 }),
+        userService.getUsers({ role: 'TRAINER', status: 'ACTIVE', limit: 100 }),
+      ]);
 
-  // Course distribution data
-  const courseDistribution = courses.map(course => {
-    const studentCount = colleges.reduce((acc, c) =>
-      acc + c.students.filter(s => s.courseAssigned === course.title).length, 0
-    );
-    return { name: course.title, count: studentCount, status: course.status };
-  });
+      if (statsRes.success && statsRes.data) {
+        setDashboardStats(statsRes.data);
+      }
+
+      if (collegesRes.success && collegesRes.data) {
+        // Enhance colleges with student counts
+        const collegesWithStats: CollegeWithStats[] = collegesRes.data.colleges.map(college => ({
+          ...college,
+          studentCount: 0,
+          batchCount: college._count?.batches || 0,
+          sessionCount: 0,
+        }));
+        setColleges(collegesWithStats);
+      }
+
+      if (coursesRes.success && coursesRes.data) {
+        setCourses(coursesRes.data.courses);
+      }
+
+      if (studentsRes.success && studentsRes.data) {
+        setStudents(studentsRes.data.students);
+      }
+
+      if (trainersRes.success && trainersRes.data) {
+        setTrainers(trainersRes.data.users);
+      }
+    } catch (error) {
+      console.error('Failed to fetch report data:', error);
+      addToast('error', 'Failed to load report data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [addToast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Calculate statistics from API data
+  const totalStudents = dashboardStats?.students.total || students.length;
+  const totalColleges = dashboardStats?.colleges.total || colleges.length;
+  const totalCourses = dashboardStats?.courses.total || courses.length;
+  const publishedCourses = courses.filter(c => c.status === 'PUBLISHED');
+  const draftCourses = courses.filter(c => c.status === 'DRAFT');
+  const totalAssessments = dashboardStats?.assessments.total || 0;
+  const totalBatches = dashboardStats?.batches.total || 0;
+  const activeTrainers = trainers.length;
+
+  // Calculate students per college
+  const studentsByCollege = students.reduce((acc, student) => {
+    const collegeId = student.college?.id;
+    if (collegeId) {
+      acc[collegeId] = (acc[collegeId] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Calculate students per course
+  const studentsByCourse = students.reduce((acc, student) => {
+    const courseTitle = student.course?.title;
+    if (courseTitle) {
+      acc[courseTitle] = (acc[courseTitle] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Calculate students per trainer
+  const studentsByTrainer = students.reduce((acc, student) => {
+    const trainerId = student.trainer?.id;
+    if (trainerId) {
+      acc[trainerId] = (acc[trainerId] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Calculate students per department
+  const departmentDistribution = students.reduce((acc, student) => {
+    const dept = student.department || 'Unknown';
+    acc[dept] = (acc[dept] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Calculate students per batch
+  const batchDistribution = students.reduce((acc, student) => {
+    const batchName = student.batch?.name || 'Unassigned';
+    acc[batchName] = (acc[batchName] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Calculate colleges per city
+  const collegesByCity = colleges.reduce((acc, college) => {
+    const city = college.city || 'Unknown';
+    acc[city] = (acc[city] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Calculate students per city
+  const studentsByCity = students.reduce((acc, student) => {
+    const city = student.college?.city || 'Unknown';
+    acc[city] = (acc[city] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
 
   // College performance data
   const collegePerformance = colleges.map(college => ({
     id: college.id,
     name: college.name,
-    university: college.university,
-    city: college.city,
-    students: college.students.length,
-    sessions: college.schedules.length,
-    batches: [...new Set(college.students.map(s => s.batch))].length,
-    assessments: college.assessmentDeadlines.length,
-    completion: college.schedules.length > 0 ? Math.min(100, Math.floor((college.schedules.length / 10) * 100)) : 0,
+    university: college.university || '-',
+    city: college.city || '-',
+    students: studentsByCollege[college.id] || 0,
+    batches: college._count?.batches || 0,
+    sessions: 0, // Would need session API
+    progress: Math.min(100, ((studentsByCollege[college.id] || 0) / Math.max(totalStudents, 1)) * 500), // Normalized progress
   }));
 
-  // Trainer workload
-  const trainerWorkload = trainers.map(trainer => {
-    const assignedStudents = colleges.reduce((acc, c) =>
-      acc + c.students.filter(s => s.trainer === trainer.name).length, 0
-    );
-    const assignedColleges = colleges.filter(c =>
-      c.students.some(s => s.trainer === trainer.name)
-    ).length;
-    return {
-      name: trainer.name,
-      students: assignedStudents,
-      colleges: assignedColleges,
-      designation: trainer.designation,
-    };
-  });
-
-  // Batch-wise student distribution
-  const batchDistribution = uniqueBatches.map(batch => ({
-    batch,
-    count: colleges.reduce((acc, c) =>
-      acc + c.students.filter(s => s.batch === batch).length, 0
-    ),
+  // Trainer workload data
+  const trainerWorkload = trainers.map(trainer => ({
+    id: trainer.id,
+    name: trainer.username,
+    email: trainer.email,
+    designation: trainer.designation || 'Trainer',
+    students: studentsByTrainer[trainer.id] || 0,
+    colleges: [...new Set(students.filter(s => s.trainer?.id === trainer.id).map(s => s.college?.id))].length,
   }));
 
-  // Department distribution
-  const allDepartments = colleges.flatMap(c => c.students.map(s => s.department));
-  const departmentCounts = allDepartments.reduce((acc, dept) => {
-    acc[dept] = (acc[dept] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  const departmentDistribution = Object.entries(departmentCounts).map(([dept, count]) => ({
-    department: dept as string,
-    count: count as number,
+  // Course distribution data
+  const courseDistribution = courses.map(course => ({
+    id: course.id,
+    name: course.title,
+    status: course.status,
+    students: studentsByCourse[course.title] || 0,
+    modules: course._count?.coreSkills || 0,
+    durationDays: course.durationDays,
+    description: course.description || '',
   }));
-
-  // Get upcoming sessions across all colleges
-  const allSessions = colleges.flatMap(c =>
-    c.schedules.map(s => ({
-      ...s,
-      collegeName: c.name,
-      collegeId: c.id
-    }))
-  ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  // Get recent activity (simulated)
-  const recentActivity = [
-    { type: 'student', action: 'enrolled', detail: '2 students enrolled in Global Institute', time: '2 hours ago', icon: 'person_add' },
-    { type: 'course', action: 'published', detail: 'Soft Skills Development published', time: '5 hours ago', icon: 'check_circle' },
-    { type: 'session', action: 'completed', detail: 'Communication Basics session completed', time: '1 day ago', icon: 'event_available' },
-    { type: 'assessment', action: 'created', detail: 'New MCQ assessment added', time: '2 days ago', icon: 'quiz' },
-  ];
 
   const handleExport = (format: 'pdf' | 'csv' | 'excel') => {
     addToast('info', `Preparing ${format.toUpperCase()} export... Download will start shortly.`);
-    // Simulate export delay
     setTimeout(() => {
       addToast('success', `${format.toUpperCase()} report exported successfully!`);
     }, 1500);
@@ -234,10 +318,21 @@ const Reports: React.FC = () => {
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold text-gray-900 mt-3">{value}</p>
+      <p className="text-2xl font-bold text-gray-900 dark:text-white mt-3">{value}</p>
       <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</p>
     </div>
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-500">Loading reports...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -327,7 +422,10 @@ const Reports: React.FC = () => {
             </select>
           </div>
           <div className="flex items-end">
-            <button className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 text-sm flex items-center justify-center gap-2 transition-colors">
+            <button
+              onClick={fetchData}
+              className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 text-sm flex items-center justify-center gap-2 transition-colors"
+            >
               <span className="material-symbols-outlined text-lg">filter_alt</span>
               Apply Filters
             </button>
@@ -340,12 +438,12 @@ const Reports: React.FC = () => {
         <div className="space-y-6">
           {/* Key Metrics Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <StatCard icon="school" iconBg="bg-blue-50" iconColor="text-blue-600" value={totalStudents} label="Students" trend={{ value: '12%', positive: true }} />
+            <StatCard icon="school" iconBg="bg-blue-50" iconColor="text-blue-600" value={totalStudents} label="Students" />
             <StatCard icon="apartment" iconBg="bg-purple-50" iconColor="text-purple-600" value={totalColleges} label="Colleges" />
             <StatCard icon="menu_book" iconBg="bg-green-50" iconColor="text-green-600" value={publishedCourses.length} label="Active Courses" />
-            <StatCard icon="groups" iconBg="bg-yellow-50" iconColor="text-yellow-600" value={trainers.length} label="Trainers" />
+            <StatCard icon="groups" iconBg="bg-yellow-50" iconColor="text-yellow-600" value={activeTrainers} label="Trainers" />
             <StatCard icon="assignment" iconBg="bg-red-50" iconColor="text-red-600" value={totalAssessments} label="Assessments" />
-            <StatCard icon="event" iconBg="bg-indigo-50" iconColor="text-indigo-600" value={totalSessions} label="Sessions" />
+            <StatCard icon="event" iconBg="bg-indigo-50" iconColor="text-indigo-600" value={totalBatches} label="Batches" />
           </div>
 
           {/* Charts Row */}
@@ -366,7 +464,10 @@ const Reports: React.FC = () => {
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700 mb-6">Students by College</h3>
               <BarChart
-                data={colleges.map(c => ({ label: c.name.split(' ')[0], value: c.students.length }))}
+                data={colleges.slice(0, 5).map(c => ({
+                  label: c.name.split(' ').slice(0, 2).join(' '),
+                  value: studentsByCollege[c.id] || 0
+                }))}
                 colors={['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444']}
               />
             </div>
@@ -379,7 +480,7 @@ const Reports: React.FC = () => {
                 <div>
                   <p className="text-blue-100 text-sm font-medium">Student-Trainer Ratio</p>
                   <p className="text-3xl font-bold mt-2">
-                    {trainers.length > 0 ? `1:${Math.round(totalStudents / trainers.length)}` : 'N/A'}
+                    {activeTrainers > 0 ? `1:${Math.round(totalStudents / activeTrainers)}` : 'N/A'}
                   </p>
                 </div>
                 <span className="material-symbols-outlined text-3xl text-blue-200">balance</span>
@@ -399,72 +500,10 @@ const Reports: React.FC = () => {
             <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-white">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-green-100 text-sm font-medium">Total Skills Covered</p>
-                  <p className="text-3xl font-bold mt-2">{coreSkills.length + skills.length}</p>
+                  <p className="text-green-100 text-sm font-medium">Total Courses</p>
+                  <p className="text-3xl font-bold mt-2">{totalCourses}</p>
                 </div>
-                <span className="material-symbols-outlined text-3xl text-green-200">psychology</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Upcoming Sessions & Recent Activity */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Upcoming Sessions */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700">Upcoming Sessions</h3>
-                <span className="text-xs text-gray-400">Next 7 days</span>
-              </div>
-              {allSessions.length === 0 ? (
-                <div className="text-center py-8 text-gray-400">
-                  <span className="material-symbols-outlined text-4xl mb-2">event_busy</span>
-                  <p>No upcoming sessions</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {allSessions.slice(0, 4).map((session, idx) => (
-                    <div key={idx} className="flex items-start gap-4 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors">
-                      <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-primary-100 flex flex-col items-center justify-center">
-                        <span className="text-xs font-bold text-primary-700">
-                          {new Date(session.date).toLocaleDateString('en-US', { day: '2-digit' })}
-                        </span>
-                        <span className="text-[10px] text-primary-600 uppercase">
-                          {new Date(session.date).toLocaleDateString('en-US', { month: 'short' })}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-gray-900 truncate">{session.chapter}</p>
-                        <p className="text-xs text-gray-500">{session.collegeName}</p>
-                        <span className="inline-block mt-1 px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-medium rounded-full">
-                          {session.batch}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Recent Activity */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6">
-              <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700 mb-6">Recent Activity</h3>
-              <div className="space-y-4">
-                {recentActivity.map((activity, idx) => (
-                  <div key={idx} className="flex items-start gap-4">
-                    <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-                      activity.type === 'student' ? 'bg-blue-50 text-blue-600' :
-                      activity.type === 'course' ? 'bg-green-50 text-green-600' :
-                      activity.type === 'session' ? 'bg-purple-50 text-purple-600' :
-                      'bg-yellow-50 text-yellow-600'
-                    }`}>
-                      <span className="material-symbols-outlined text-lg">{activity.icon}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-900">{activity.detail}</p>
-                      <p className="text-xs text-gray-400 mt-1">{activity.time}</p>
-                    </div>
-                  </div>
-                ))}
+                <span className="material-symbols-outlined text-3xl text-green-200">auto_stories</span>
               </div>
             </div>
           </div>
@@ -477,29 +516,29 @@ const Reports: React.FC = () => {
           {/* Student Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard icon="people" iconBg="bg-blue-50" iconColor="text-blue-600" value={totalStudents} label="Total Enrolled" />
-            <StatCard icon="groups_3" iconBg="bg-purple-50" iconColor="text-purple-600" value={uniqueBatches.length} label="Active Batches" />
-            <StatCard icon="account_tree" iconBg="bg-green-50" iconColor="text-green-600" value={departmentDistribution.length} label="Departments" />
-            <StatCard icon="analytics" iconBg="bg-yellow-50" iconColor="text-yellow-600" value={totalStudents > 0 && totalColleges > 0 ? Math.round(totalStudents / totalColleges) : 0} label="Avg per College" />
+            <StatCard icon="groups_3" iconBg="bg-purple-50" iconColor="text-purple-600" value={Object.keys(batchDistribution).length} label="Active Batches" />
+            <StatCard icon="account_tree" iconBg="bg-green-50" iconColor="text-green-600" value={Object.keys(departmentDistribution).length} label="Departments" />
+            <StatCard icon="analytics" iconBg="bg-yellow-50" iconColor="text-yellow-600" value={totalColleges > 0 ? Math.round(totalStudents / totalColleges) : 0} label="Avg per College" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Batch Distribution */}
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700 mb-6">Students by Batch</h3>
-              {batchDistribution.length === 0 ? (
+              {Object.keys(batchDistribution).length === 0 ? (
                 <p className="text-gray-400 text-center py-8">No batch data available</p>
               ) : (
                 <div className="space-y-4">
-                  {batchDistribution.map((item, idx) => {
-                    const maxCount = Math.max(...batchDistribution.map(b => b.count), 1);
-                    const colors = ['bg-blue-500', 'bg-purple-500', 'bg-green-500', 'bg-yellow-500'];
+                  {Object.entries(batchDistribution).slice(0, 5).map(([batch, count], idx) => {
+                    const maxCount = Math.max(...Object.values(batchDistribution), 1);
+                    const colors = ['bg-blue-500', 'bg-purple-500', 'bg-green-500', 'bg-yellow-500', 'bg-red-500'];
                     return (
-                      <div key={idx}>
+                      <div key={batch}>
                         <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm font-medium text-gray-700">{item.batch}</span>
-                          <span className="text-sm font-bold text-gray-900">{item.count}</span>
+                          <span className="text-sm font-medium text-gray-700">{batch}</span>
+                          <span className="text-sm font-bold text-gray-900">{count}</span>
                         </div>
-                        <ProgressBar value={item.count} max={maxCount} color={colors[idx % colors.length]} />
+                        <ProgressBar value={count} max={maxCount} color={colors[idx % colors.length]} />
                       </div>
                     );
                   })}
@@ -511,7 +550,7 @@ const Reports: React.FC = () => {
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700 mb-6">Students by Department</h3>
               <PieChart
-                data={departmentDistribution.map(d => ({ label: String(d.department), value: Number(d.count) }))}
+                data={Object.entries(departmentDistribution).map(([dept, count]) => ({ label: dept, value: count }))}
                 colors={['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444']}
               />
             </div>
@@ -533,26 +572,34 @@ const Reports: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {courseDistribution.map((course, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-bold text-gray-900">{course.name}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                          course.status === 'Published' ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'
-                        }`}>
-                          {course.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{course.count}</td>
-                      <td className="px-6 py-4 w-48">
-                        <ProgressBar
-                          value={course.count}
-                          max={Math.max(...courseDistribution.map(c => c.count), 1)}
-                          color="bg-primary-600"
-                        />
+                  {courseDistribution.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
+                        No course data available
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    courseDistribution.map((course) => (
+                      <tr key={course.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 text-sm font-bold text-gray-900">{course.name}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                            course.status === 'PUBLISHED' ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'
+                          }`}>
+                            {course.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{course.students}</td>
+                        <td className="px-6 py-4 w-48">
+                          <ProgressBar
+                            value={course.students}
+                            max={Math.max(...courseDistribution.map(c => c.students), 1)}
+                            color="bg-primary-600"
+                          />
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -565,11 +612,11 @@ const Reports: React.FC = () => {
         <div className="space-y-6">
           {/* Course Stats */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <StatCard icon="auto_stories" iconBg="bg-blue-50" iconColor="text-blue-600" value={courses.length} label="Total Courses" />
+            <StatCard icon="auto_stories" iconBg="bg-blue-50" iconColor="text-blue-600" value={totalCourses} label="Total Courses" />
             <StatCard icon="check_circle" iconBg="bg-green-50" iconColor="text-green-600" value={publishedCourses.length} label="Published" />
             <StatCard icon="edit_note" iconBg="bg-yellow-50" iconColor="text-yellow-600" value={draftCourses.length} label="Drafts" />
-            <StatCard icon="view_module" iconBg="bg-purple-50" iconColor="text-purple-600" value={totalModules} label="Total Modules" />
-            <StatCard icon="menu_book" iconBg="bg-indigo-50" iconColor="text-indigo-600" value={chapters.length} label="Total Chapters" />
+            <StatCard icon="view_module" iconBg="bg-purple-50" iconColor="text-purple-600" value={courses.reduce((acc, c) => acc + (c._count?.coreSkills || 0), 0)} label="Core Skills" />
+            <StatCard icon="assignment" iconBg="bg-indigo-50" iconColor="text-indigo-600" value={totalAssessments} label="Assessments" />
           </div>
 
           {/* Course Details Table */}
@@ -584,43 +631,43 @@ const Reports: React.FC = () => {
                     <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Course</th>
                     <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Status</th>
                     <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Duration</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Modules</th>
                     <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Core Skills</th>
                     <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Enrolled</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {courses.map((course) => (
-                    <tr key={course.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <p className="text-sm font-bold text-gray-900">{course.title}</p>
-                        <p className="text-xs text-gray-400 mt-1 line-clamp-1">{course.description}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                          course.status === 'Published' ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'
-                        }`}>
-                          {course.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{course.durationDays} days</td>
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
-                          {course.modules.length}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full font-medium">
-                          {course.coreSkills.length}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                        {colleges.reduce((acc, c) =>
-                          acc + c.students.filter(s => s.courseAssigned === course.title).length, 0
-                        )}
+                  {courses.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                        No course data available
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    courses.map((course) => (
+                      <tr key={course.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4">
+                          <p className="text-sm font-bold text-gray-900">{course.title}</p>
+                          <p className="text-xs text-gray-400 mt-1 line-clamp-1">{course.description}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                            course.status === 'PUBLISHED' ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'
+                          }`}>
+                            {course.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{course.durationDays} days</td>
+                        <td className="px-6 py-4">
+                          <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full font-medium">
+                            {course._count?.coreSkills || 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                          {studentsByCourse[course.title] || 0}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -675,12 +722,12 @@ const Reports: React.FC = () => {
                           <div className="flex items-center gap-3">
                             <div className="w-20">
                               <ProgressBar
-                                value={college.completion}
+                                value={college.progress}
                                 max={100}
-                                color={college.completion >= 70 ? 'bg-green-500' : college.completion >= 40 ? 'bg-yellow-500' : 'bg-red-500'}
+                                color={college.progress >= 70 ? 'bg-green-500' : college.progress >= 40 ? 'bg-yellow-500' : 'bg-red-500'}
                               />
                             </div>
-                            <span className="text-sm font-medium text-gray-700">{college.completion}%</span>
+                            <span className="text-sm font-medium text-gray-700">{Math.round(college.progress)}%</span>
                           </div>
                         </td>
                       </tr>
@@ -696,9 +743,9 @@ const Reports: React.FC = () => {
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700 mb-6">Colleges by City</h3>
               <PieChart
-                data={[...new Set(colleges.map(c => c.city))].map((city: string) => ({
+                data={Object.entries(collegesByCity).map(([city, count]) => ({
                   label: city,
-                  value: colleges.filter(c => c.city === city).length,
+                  value: count,
                 }))}
                 colors={['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B']}
               />
@@ -706,9 +753,9 @@ const Reports: React.FC = () => {
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700 mb-6">Students by City</h3>
               <PieChart
-                data={[...new Set(colleges.map(c => c.city))].map((city: string) => ({
+                data={Object.entries(studentsByCity).map(([city, count]) => ({
                   label: city,
-                  value: colleges.filter(c => c.city === city).reduce((acc, c) => acc + c.students.length, 0),
+                  value: count,
                 }))}
                 colors={['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B']}
               />
@@ -722,9 +769,9 @@ const Reports: React.FC = () => {
         <div className="space-y-6">
           {/* Trainer Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard icon="person" iconBg="bg-blue-50" iconColor="text-blue-600" value={trainers.length} label="Active Trainers" />
+            <StatCard icon="person" iconBg="bg-blue-50" iconColor="text-blue-600" value={activeTrainers} label="Active Trainers" />
             <StatCard icon="school" iconBg="bg-purple-50" iconColor="text-purple-600" value={totalStudents} label="Total Students" />
-            <StatCard icon="balance" iconBg="bg-green-50" iconColor="text-green-600" value={trainers.length > 0 ? Math.round(totalStudents / trainers.length) : 0} label="Avg Students/Trainer" />
+            <StatCard icon="balance" iconBg="bg-green-50" iconColor="text-green-600" value={activeTrainers > 0 ? Math.round(totalStudents / activeTrainers) : 0} label="Avg Students/Trainer" />
             <StatCard icon="apartment" iconBg="bg-yellow-50" iconColor="text-yellow-600" value={totalColleges} label="Colleges Covered" />
           </div>
 
@@ -732,7 +779,7 @@ const Reports: React.FC = () => {
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700 mb-6">Trainer Workload Comparison</h3>
             <BarChart
-              data={trainerWorkload.map(t => ({ label: t.name.split(' ')[0], value: t.students }))}
+              data={trainerWorkload.slice(0, 5).map(t => ({ label: t.name.split(' ')[0], value: t.students }))}
               colors={['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6']}
             />
           </div>
@@ -761,13 +808,14 @@ const Reports: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    trainerWorkload.map((trainer, idx) => {
+                    trainerWorkload.map((trainer) => {
                       const maxStudents = Math.max(...trainerWorkload.map(t => t.students), 1);
                       const workloadPercentage = (trainer.students / maxStudents) * 100;
                       return (
-                        <tr key={idx} className="hover:bg-gray-50">
+                        <tr key={trainer.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4">
                             <p className="text-sm font-bold text-gray-900">{trainer.name}</p>
+                            <p className="text-xs text-gray-400">{trainer.email}</p>
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-600">{trainer.designation}</td>
                           <td className="px-6 py-4">

@@ -1,47 +1,187 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import Modal from '../../components/shared/Modal';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
-
-interface ScheduleItem {
-  date: Date;
-  batch: string;
-  chapter: string;
-}
-
-interface DeadlineItem {
-  title: string;
-  submissionDate: Date;
-}
+import collegeService from '../../services/collegeService';
+import batchService from '../../services/batchService';
+import sessionService from '../../services/sessionService';
+import chapterService from '../../services/chapterService';
+import { ApiCollege, ApiBatch, ApiSession } from '../../types/college';
+import { ApiChapter } from '../../types/course';
 
 const ScheduleSessions: React.FC = () => {
   const { collegeId } = useParams();
   const navigate = useNavigate();
-  // Read query params
   const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') === 'deadlines' ? 'deadlines' : 'sessions';
+  const initialTab = searchParams.get('tab') === 'attendance' ? 'attendance' : 'sessions';
 
-  const { colleges, chapters, updateCollege, addToast } = useStore();
+  const { addToast } = useStore();
 
-  const college = colleges.find(c => c.id === collegeId);
-  const batches = college ? [...new Set(college.students.map(s => s.batch))].filter(Boolean) : [];
+  const [college, setCollege] = useState<ApiCollege | null>(null);
+  const [batches, setBatches] = useState<ApiBatch[]>([]);
+  const [sessions, setSessions] = useState<ApiSession[]>([]);
+  const [chapters, setChapters] = useState<ApiChapter[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'sessions' | 'deadlines'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'sessions' | 'attendance'>(initialTab);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
-  const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; type: 'session' | 'deadline'; index: number }>({ isOpen: false, type: 'session', index: -1 });
+  const [selectedBatchFilter, setSelectedBatchFilter] = useState<string>('');
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; chapter: string }>({ isOpen: false, id: '', chapter: '' });
 
   const [sessionForm, setSessionForm] = useState({
     date: '',
-    batch: '',
-    chapter: '',
+    batchId: '',
+    chapterId: '',
   });
 
-  const [deadlineForm, setDeadlineForm] = useState({
-    title: '',
-    submissionDate: '',
-  });
+  // Fetch college and related data
+  const fetchData = useCallback(async () => {
+    if (!collegeId) return;
+
+    setIsLoading(true);
+    try {
+      const [collegeRes, batchesRes, chaptersRes] = await Promise.all([
+        collegeService.getCollegeById(collegeId),
+        batchService.getBatches(collegeId),
+        chapterService.getChapters({ limit: 100 }),
+      ]);
+
+      if (collegeRes.success && collegeRes.data) {
+        setCollege(collegeRes.data.college);
+      }
+
+      if (batchesRes.success && batchesRes.data) {
+        setBatches(batchesRes.data.batches);
+      }
+
+      if (chaptersRes.success && chaptersRes.data) {
+        setChapters(chaptersRes.data.chapters);
+      }
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      addToast('error', 'Failed to load college data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [collegeId, addToast]);
+
+  // Fetch sessions based on batch filter
+  const fetchSessions = useCallback(async () => {
+    if (!collegeId) return;
+
+    try {
+      // Get all batch IDs for this college
+      const batchIds = selectedBatchFilter ? [selectedBatchFilter] : batches.map(b => b.id);
+
+      if (batchIds.length === 0) {
+        setSessions([]);
+        return;
+      }
+
+      // If filtering by specific batch
+      if (selectedBatchFilter) {
+        const response = await sessionService.getSessions({ batchId: selectedBatchFilter, limit: 100 });
+        if (response.success && response.data) {
+          setSessions(response.data.sessions);
+        }
+      } else {
+        // Fetch sessions for all batches
+        const allSessions: ApiSession[] = [];
+        for (const batch of batches) {
+          const response = await sessionService.getSessions({ batchId: batch.id, limit: 100 });
+          if (response.success && response.data) {
+            allSessions.push(...response.data.sessions);
+          }
+        }
+        setSessions(allSessions);
+      }
+    } catch (error) {
+      console.error('Failed to fetch sessions:', error);
+    }
+  }, [collegeId, batches, selectedBatchFilter]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (batches.length > 0) {
+      fetchSessions();
+    }
+  }, [batches, fetchSessions]);
+
+  const handleAddSession = async () => {
+    if (!sessionForm.date || !sessionForm.batchId || !sessionForm.chapterId) {
+      addToast('warning', 'Please fill all fields');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await sessionService.createSession({
+        batchId: sessionForm.batchId,
+        chapterId: sessionForm.chapterId,
+        date: new Date(sessionForm.date).toISOString(),
+      });
+
+      if (response.success) {
+        addToast('success', 'Session scheduled successfully');
+        setIsSessionModalOpen(false);
+        setSessionForm({ date: '', batchId: '', chapterId: '' });
+        fetchSessions();
+      } else {
+        addToast('error', response.error?.message || 'Failed to schedule session');
+      }
+    } catch (error: unknown) {
+      console.error('Failed to create session:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Failed to schedule session');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteSession = async () => {
+    try {
+      const response = await sessionService.deleteSession(deleteConfirm.id);
+      if (response.success) {
+        addToast('success', 'Session deleted successfully');
+        fetchSessions();
+      } else {
+        addToast('error', response.error?.message || 'Failed to delete session');
+      }
+    } catch (error: unknown) {
+      console.error('Failed to delete session:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Cannot delete session with attendance records');
+    } finally {
+      setDeleteConfirm({ isOpen: false, id: '', chapter: '' });
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const sortedSessions = [...sessions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
+          <span className="text-gray-500">Loading schedule data...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!college) {
     return (
@@ -55,70 +195,14 @@ const ScheduleSessions: React.FC = () => {
     );
   }
 
-  const handleAddSession = () => {
-    if (sessionForm.date && sessionForm.batch && sessionForm.chapter) {
-      const newSchedule: ScheduleItem = {
-        date: new Date(sessionForm.date),
-        batch: sessionForm.batch,
-        chapter: sessionForm.chapter,
-      };
-      updateCollege(college.id, {
-        schedules: [...college.schedules, newSchedule],
-      });
-      setIsSessionModalOpen(false);
-      setSessionForm({ date: '', batch: '', chapter: '' });
-    } else {
-      addToast('warning', 'Please fill all fields');
-    }
-  };
-
-  const handleAddDeadline = () => {
-    if (deadlineForm.title && deadlineForm.submissionDate) {
-      const newDeadline: DeadlineItem = {
-        title: deadlineForm.title,
-        submissionDate: new Date(deadlineForm.submissionDate),
-      };
-      updateCollege(college.id, {
-        assessmentDeadlines: [...college.assessmentDeadlines, newDeadline],
-      });
-      setIsDeadlineModalOpen(false);
-      setDeadlineForm({ title: '', submissionDate: '' });
-    } else {
-      addToast('warning', 'Please fill all fields');
-    }
-  };
-
-  const handleDelete = () => {
-    if (deleteConfirm.type === 'session') {
-      const updatedSchedules = college.schedules.filter((_, idx) => idx !== deleteConfirm.index);
-      updateCollege(college.id, { schedules: updatedSchedules });
-    } else {
-      const updatedDeadlines = college.assessmentDeadlines.filter((_, idx) => idx !== deleteConfirm.index);
-      updateCollege(college.id, { assessmentDeadlines: updatedDeadlines });
-    }
-    setDeleteConfirm({ isOpen: false, type: 'session', index: -1 });
-  };
-
-  const formatDate = (date: Date) => {
-    return new Date(date).toLocaleDateString('en-IN', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
-
-  const sortedSchedules = [...college.schedules].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  const sortedDeadlines = [...college.assessmentDeadlines].sort((a, b) => new Date(a.submissionDate).getTime() - new Date(b.submissionDate).getTime());
-
   return (
     <div className="space-y-8">
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ isOpen: false, type: 'session', index: -1 })}
-        onConfirm={handleDelete}
-        title={deleteConfirm.type === 'session' ? 'Delete Session' : 'Delete Deadline'}
-        message={`Are you sure you want to delete this ${deleteConfirm.type}?`}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', chapter: '' })}
+        onConfirm={handleDeleteSession}
+        title="Delete Session"
+        message={`Are you sure you want to delete the session for "${deleteConfirm.chapter}"? This cannot be undone.`}
         confirmText="Delete"
         type="danger"
       />
@@ -127,97 +211,71 @@ const ScheduleSessions: React.FC = () => {
       <Modal isOpen={isSessionModalOpen} onClose={() => setIsSessionModalOpen(false)} title="Schedule New Session" size="md">
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 mb-1">Session Date *</label>
+            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-1">Session Date *</label>
             <input
               type="date"
               value={sessionForm.date}
               onChange={(e) => setSessionForm({ ...sessionForm, date: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-700"
+              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 dark:bg-gray-900 dark:text-white"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 mb-1">Batch *</label>
+            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-1">Batch *</label>
             {batches.length > 0 ? (
               <select
-                value={sessionForm.batch}
-                onChange={(e) => setSessionForm({ ...sessionForm, batch: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-700"
+                value={sessionForm.batchId}
+                onChange={(e) => setSessionForm({ ...sessionForm, batchId: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 dark:bg-gray-900 dark:text-white"
               >
                 <option value="">Select batch</option>
                 {batches.map(batch => (
-                  <option key={batch} value={batch}>{batch}</option>
+                  <option key={batch.id} value={batch.id}>{batch.name}</option>
                 ))}
               </select>
             ) : (
-              <input
-                type="text"
-                value={sessionForm.batch}
-                onChange={(e) => setSessionForm({ ...sessionForm, batch: e.target.value })}
-                placeholder="Enter batch name"
-                className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-700"
-              />
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">No batches available</span>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/colleges/${collegeId}/batches`)}
+                  className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  Create Batch
+                </button>
+              </div>
             )}
           </div>
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 mb-1">Chapter *</label>
+            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-300 mb-1">Chapter *</label>
             <select
-              value={sessionForm.chapter}
-              onChange={(e) => setSessionForm({ ...sessionForm, chapter: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-700"
+              value={sessionForm.chapterId}
+              onChange={(e) => setSessionForm({ ...sessionForm, chapterId: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:border-primary-700 dark:bg-gray-900 dark:text-white"
             >
               <option value="">Select chapter</option>
               {chapters.map(ch => (
-                <option key={ch.id} value={ch.name}>{ch.name}</option>
+                <option key={ch.id} value={ch.id}>
+                  {ch.name} {ch.module ? `(${ch.module.title})` : ''}
+                </option>
               ))}
             </select>
           </div>
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <button onClick={() => setIsSessionModalOpen(false)} className="px-4 py-2 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50">
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
+            <button
+              onClick={() => setIsSessionModalOpen(false)}
+              className="px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
               Cancel
             </button>
             <button
               onClick={handleAddSession}
-              disabled={!sessionForm.date || !sessionForm.batch || !sessionForm.chapter}
-              className="px-4 py-2 bg-primary-700 text-white rounded-xl hover:bg-primary-800 disabled:opacity-50"
+              disabled={isSaving || !sessionForm.date || !sessionForm.batchId || !sessionForm.chapterId}
+              className="px-4 py-2 bg-primary-700 text-white rounded-xl hover:bg-primary-800 disabled:opacity-50 flex items-center gap-2"
             >
+              {isSaving && (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              )}
               Add Session
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Deadline Modal */}
-      <Modal isOpen={isDeadlineModalOpen} onClose={() => setIsDeadlineModalOpen(false)} title="Add Assessment Deadline" size="md">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 mb-1">Assessment Title *</label>
-            <input
-              type="text"
-              value={deadlineForm.title}
-              onChange={(e) => setDeadlineForm({ ...deadlineForm, title: e.target.value })}
-              placeholder="Enter assessment title"
-              className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-700"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wide text-gray-700 mb-1">Submission Date *</label>
-            <input
-              type="date"
-              value={deadlineForm.submissionDate}
-              onChange={(e) => setDeadlineForm({ ...deadlineForm, submissionDate: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-700"
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <button onClick={() => setIsDeadlineModalOpen(false)} className="px-4 py-2 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50">
-              Cancel
-            </button>
-            <button
-              onClick={handleAddDeadline}
-              disabled={!deadlineForm.title || !deadlineForm.submissionDate}
-              className="px-4 py-2 bg-primary-700 text-white rounded-xl hover:bg-primary-800 disabled:opacity-50"
-            >
-              Add Deadline
             </button>
           </div>
         </div>
@@ -230,33 +288,33 @@ const ScheduleSessions: React.FC = () => {
           Back to Students
         </button>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{college.name}</h1>
-        <p className="text-sm text-gray-500 mt-1">Schedule training sessions and assessment deadlines</p>
+        <p className="text-sm text-gray-500 mt-1">Schedule training sessions and manage attendance</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-4 border-b border-gray-100">
+      <div className="flex gap-4 border-b border-gray-100 dark:border-gray-700">
         <button
           onClick={() => setActiveTab('sessions')}
           className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'sessions'
             ? 'border-primary-700 text-primary-700'
-            : 'border-transparent text-gray-500 hover:text-gray-700'
+            : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
         >
           <span className="flex items-center gap-2">
             <span className="material-symbols-outlined text-lg">calendar_month</span>
-            Training Sessions ({college.schedules.length})
+            Training Sessions ({sessions.length})
           </span>
         </button>
         <button
-          onClick={() => setActiveTab('deadlines')}
-          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'deadlines'
+          onClick={() => setActiveTab('attendance')}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'attendance'
             ? 'border-primary-700 text-primary-700'
-            : 'border-transparent text-gray-500 hover:text-gray-700'
+            : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
         >
           <span className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-lg">assignment_turned_in</span>
-            Assessment Deadlines ({college.assessmentDeadlines.length})
+            <span className="material-symbols-outlined text-lg">fact_check</span>
+            Attendance
           </span>
         </button>
       </div>
@@ -264,57 +322,100 @@ const ScheduleSessions: React.FC = () => {
       {/* Content */}
       {activeTab === 'sessions' ? (
         <div className="space-y-6">
-          <div className="flex justify-end">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              {batches.length > 0 && (
+                <select
+                  value={selectedBatchFilter}
+                  onChange={(e) => setSelectedBatchFilter(e.target.value)}
+                  className="px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-900 focus:outline-none focus:border-primary-700"
+                >
+                  <option value="">All Batches</option>
+                  {batches.map(batch => (
+                    <option key={batch.id} value={batch.id}>{batch.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
             <button
               onClick={() => setIsSessionModalOpen(true)}
-              className="px-6 py-2.5 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 flex items-center gap-2"
+              disabled={batches.length === 0}
+              className="px-6 py-2.5 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 dark:shadow-none flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined">add</span>
               Schedule Session
             </button>
           </div>
 
-          {sortedSchedules.length === 0 ? (
+          {batches.length === 0 ? (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-12 text-center">
+              <span className="material-symbols-outlined text-5xl text-gray-300 mb-4">groups</span>
+              <h3 className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No batches available</h3>
+              <p className="text-sm text-gray-400 mb-6">Create a batch first before scheduling sessions</p>
+              <button
+                onClick={() => navigate(`/colleges/${collegeId}/batches`)}
+                className="px-6 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700"
+              >
+                Create Batch
+              </button>
+            </div>
+          ) : sortedSessions.length === 0 ? (
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-12 text-center">
               <span className="material-symbols-outlined text-5xl text-gray-300 mb-4">event_busy</span>
-              <h3 className="text-lg font-medium text-gray-600 mb-2">No sessions scheduled</h3>
+              <h3 className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No sessions scheduled</h3>
               <p className="text-sm text-gray-400">Create your first training session for this college</p>
             </div>
           ) : (
             <div className="grid gap-4">
-              {sortedSchedules.map((schedule, idx) => {
-                const isPast = new Date(schedule.date) < new Date();
+              {sortedSessions.map((session) => {
+                const isPast = new Date(session.date) < new Date();
                 return (
                   <div
-                    key={idx}
-                    className={`bg-white dark:bg-gray-800 rounded-xl border ${isPast ? 'border-gray-200 opacity-60' : 'border-gray-100'} p-5 flex items-center justify-between`}
+                    key={session.id}
+                    className={`bg-white dark:bg-gray-800 rounded-xl border ${isPast ? 'border-gray-200 dark:border-gray-600 opacity-60' : 'border-gray-100 dark:border-gray-700'} p-5 flex items-center justify-between`}
                   >
                     <div className="flex items-center gap-6">
-                      <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center ${isPast ? 'bg-gray-100' : 'bg-primary-50'}`}>
-                        <span className={`text-lg font-bold ${isPast ? 'text-gray-500' : 'text-primary-700'}`}>
-                          {new Date(schedule.date).getDate()}
+                      <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center ${isPast ? 'bg-gray-100 dark:bg-gray-700' : 'bg-primary-50 dark:bg-primary-900/30'}`}>
+                        <span className={`text-lg font-bold ${isPast ? 'text-gray-500' : 'text-primary-700 dark:text-primary-400'}`}>
+                          {new Date(session.date).getDate()}
                         </span>
-                        <span className={`text-xs ${isPast ? 'text-gray-400' : 'text-primary-600'}`}>
-                          {new Date(schedule.date).toLocaleDateString('en-IN', { month: 'short' })}
+                        <span className={`text-xs ${isPast ? 'text-gray-400' : 'text-primary-600 dark:text-primary-500'}`}>
+                          {new Date(session.date).toLocaleDateString('en-IN', { month: 'short' })}
                         </span>
                       </div>
                       <div>
-                        <h4 className="font-medium text-gray-900 dark:text-white">{schedule.chapter}</h4>
+                        <h4 className="font-medium text-gray-900 dark:text-white">{session.chapter?.name || 'Unknown Chapter'}</h4>
                         <div className="flex items-center gap-3 mt-1">
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
-                            {schedule.batch}
+                          <span className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded-full font-medium">
+                            {session.batch?.name || 'Unknown Batch'}
                           </span>
-                          <span className="text-xs text-gray-400">{formatDate(schedule.date)}</span>
+                          {session.chapter?.module && (
+                            <span className="text-xs text-gray-500">{session.chapter.module.title}</span>
+                          )}
+                          <span className="text-xs text-gray-400">{formatDate(session.date)}</span>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {session._count?.attendance !== undefined && (
+                        <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded-lg">
+                          {session._count.attendance} attended
+                        </span>
+                      )}
                       {isPast && (
-                        <span className="px-2 py-1 bg-gray-100 text-gray-500 text-xs rounded-lg font-medium">Completed</span>
+                        <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs rounded-lg font-medium">Completed</span>
                       )}
                       <button
-                        onClick={() => setDeleteConfirm({ isOpen: true, type: 'session', index: idx })}
-                        className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                        onClick={() => navigate(`/attendance/session/${session.id}`)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                        title="Mark Attendance"
+                      >
+                        <span className="material-symbols-outlined">fact_check</span>
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirm({ isOpen: true, id: session.id, chapter: session.chapter?.name || '' })}
+                        className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        title="Delete Session"
                       >
                         <span className="material-symbols-outlined">delete</span>
                       </button>
@@ -327,71 +428,43 @@ const ScheduleSessions: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="flex justify-end">
-            <button
-              onClick={() => setIsDeadlineModalOpen(true)}
-              className="px-6 py-2.5 bg-primary-700 text-white rounded-xl font-medium hover:bg-primary-800 shadow-lg shadow-purple-200 flex items-center gap-2"
-            >
-              <span className="material-symbols-outlined">add</span>
-              Add Deadline
-            </button>
-          </div>
-
-          {sortedDeadlines.length === 0 ? (
+          {batches.length === 0 ? (
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-12 text-center">
-              <span className="material-symbols-outlined text-5xl text-gray-300 mb-4">assignment_late</span>
-              <h3 className="text-lg font-medium text-gray-600 mb-2">No deadlines set</h3>
-              <p className="text-sm text-gray-400">Add assessment deadlines for this college</p>
+              <span className="material-symbols-outlined text-5xl text-gray-300 mb-4">groups</span>
+              <h3 className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No batches available</h3>
+              <p className="text-sm text-gray-400 mb-6">Create a batch first to manage attendance</p>
+              <button
+                onClick={() => navigate(`/colleges/${collegeId}/batches`)}
+                className="px-6 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700"
+              >
+                Create Batch
+              </button>
             </div>
           ) : (
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Sl.No</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Assessment Title</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Submission Date</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Status</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {sortedDeadlines.map((deadline, idx) => {
-                    const isPast = new Date(deadline.submissionDate) < new Date();
-                    const daysLeft = Math.ceil((new Date(deadline.submissionDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                    return (
-                      <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 text-sm text-gray-500">{idx + 1}</td>
-                        <td className="px-6 py-4">
-                          <p className="text-sm font-medium text-gray-900">{deadline.title}</p>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{formatDate(deadline.submissionDate)}</td>
-                        <td className="px-6 py-4">
-                          {isPast ? (
-                            <span className="px-2 py-1 bg-gray-100 text-gray-500 text-xs rounded-lg font-medium">Past Due</span>
-                          ) : daysLeft <= 3 ? (
-                            <span className="px-2 py-1 bg-red-50 text-red-600 text-xs rounded-lg font-medium">Due in {daysLeft} day{daysLeft !== 1 ? 's' : ''}</span>
-                          ) : daysLeft <= 7 ? (
-                            <span className="px-2 py-1 bg-yellow-50 text-yellow-600 text-xs rounded-lg font-medium">Due in {daysLeft} days</span>
-                          ) : (
-                            <span className="px-2 py-1 bg-green-50 text-green-600 text-xs rounded-lg font-medium">Upcoming</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-center">
-                            <button
-                              onClick={() => setDeleteConfirm({ isOpen: true, type: 'deadline', index: idx })}
-                              className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
-                            >
-                              <span className="material-symbols-outlined">delete</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+                <h3 className="font-bold text-gray-800 dark:text-white">Batch Attendance Summary</h3>
+                <p className="text-sm text-gray-500 mt-1">Select a batch to view detailed attendance</p>
+              </div>
+              <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                {batches.map((batch) => (
+                  <div
+                    key={batch.id}
+                    className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors"
+                    onClick={() => navigate(`/attendance/batch/${batch.id}`)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium text-gray-900 dark:text-white">{batch.name}</h4>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                          {batch._count?.students || 0} students • {batch._count?.sessions || 0} sessions
+                        </p>
+                      </div>
+                      <span className="material-symbols-outlined text-gray-400">chevron_right</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

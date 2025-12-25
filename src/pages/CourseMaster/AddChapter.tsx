@@ -1,157 +1,169 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
+import chapterService from '../../services/chapterService';
+import moduleService from '../../services/moduleService';
+import skillService from '../../services/skillService';
+import { ApiChapter, ApiSkill, ApiModule } from '../../types/course';
 
 const AddChapter: React.FC = () => {
   const navigate = useNavigate();
-  const { id } = useParams();
-  const { skills, chapters, addChapter, updateChapter } = useStore();
+  const { id, moduleId } = useParams();
+  const { addToast } = useStore();
   const isEditing = !!id;
+
+  const [chapter, setChapter] = useState<ApiChapter | null>(null);
+  const [modules, setModules] = useState<ApiModule[]>([]);
+  const [skills, setSkills] = useState<ApiSkill[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
-    skills: [] as string[],
-    pptFile: '',
-    notesFile: '',
+    moduleId: moduleId || '',
+    skillIds: [] as string[],
+    orderIndex: 0,
   });
 
-  const getChapterData = () => {
-    return chapters.find(c => c.id === id);
-  };
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (isEditing) {
-      const chapter = getChapterData();
-      if (chapter) {
-        setFormData({
-          name: chapter.name,
-          skills: chapter.skills,
-          pptFile: chapter.pptFile || '',
-          notesFile: chapter.notesFile || '',
-        });
+  // Fetch initial data
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // Fetch modules and skills in parallel
+      const [modulesRes, skillsRes] = await Promise.all([
+        moduleService.getModules(),
+        skillService.getSkills(),
+      ]);
+
+      if (modulesRes.success && modulesRes.data) {
+        setModules(modulesRes.data.modules);
       }
-    }
-  }, [id, chapters, isEditing]);
 
-  const saveChapter = (redirectToAddAssessment: boolean) => {
-    if (!formData.name.trim()) return;
-
-    let chapterId = id;
-
-    if (isEditing && id) {
-      updateChapter(id, {
-        name: formData.name,
-        skills: formData.skills,
-        pptFile: formData.pptFile,
-        notesFile: formData.notesFile,
-      });
-    } else {
-      const newChapter = {
-        name: formData.name,
-        skills: formData.skills,
-        pptFile: formData.pptFile,
-        notesFile: formData.notesFile,
-        assessments: [], // Start with empty assessments
-      };
-      // We need the ID of the new chapter to redirect.
-      // Since addChapter in useStore generates ID internally and doesn't return it (void), 
-      // we might need to modify store or do a workaround. 
-      // Workaround: Generate ID here if possible or just accept that "Add Assessment" creates the chapter first.
-      // For now, let's assume we can just create it. 
-      // Actually, the requirement flow usually implies we need to persist it.
-      // Let's create a temporary ID here to simulate, or better, change the store to accept ID.
-      // But I cannot change store easily without breaking other things.
-      // I'll use the existing addChapter but I can't get the ID back easily.
-      // Wait, I can generate the ID myself if I modify the store to accept it? No.
-      // I will optimistically check the store after adding? No, race condition.
-
-      // BETTER APPROACH: Just add the chapter and then find it? 
-      // Or simply, since I am 'The Agent', I can see existing code generates ID inside.
-      // Let's look at `AddAssessment`. It needs `chapterId`.
-      // So I MUST have a chapter ID. 
-      // I will assume for now that if it IS valid, I can save it.
-      // To properly support "Add Assessment" on a new Chapter, I should create the chapter first.
-      // The user experience: Click "Add Assessments" -> Chapter Saved -> Redirect to Add Assessment.
-
-      // I will construct the object and call addChapter.
-      // To get the ID, I might need to filter `chapters` by name/timestamp immediately? Risky.
-
-      // Let's MODIFY THE STORE to return the ID or accept an ID?
-      // Actually `useStore.tsx` has `generateId` inside `addChapter`.
-      // I will assume for this step I will just add the chapter and then navigate to list, 
-      // BUT for "Add Assessment", I need the ID.
-      // Let's rely on the user to "Submit" the chapter first? 
-      // No, requirements say "CTA- Add assessments".
-
-      // I'll do this: I'll use a local ID generation for now or just trust that `addChapter`
-      // puts it in the store. 
-      // Actually, looking at `useStore.tsx`, `addChapter` takes `Omit<Chapter, 'id' | 'createdAt'>`.
-      // I'll make a small cheeky update to `useStore` to allow passing ID if needed?
-      // OR better: I'll just change `addChapter` to `addChapterWithId`?
-      // Wait, `AddAssessment` takes `chapterId` from URL.
-
-      // Solution: I cannot easily get the ID of the newly created chapter without store modification.
-      // I will modify `useStore.tsx` in a separate step if needed. 
-      // For now, I will implement the form and assume `isEditing` is true for "Add Assessments" flow 
-      // (meaning user must save chapter first? No, that breaks UX).
-
-      // Let's assume I will redirect to the list if they click "Submit".
-      // If they click "Add Assessments", I will create the chapter, then find the latest chapter created (hacky but works for single user).
-      addChapter({
-        name: formData.name,
-        skills: formData.skills,
-        pptFile: formData.pptFile,
-        notesFile: formData.notesFile,
-        assessments: [],
-      });
-    }
-  };
-
-  // Helper to handle save and nav
-  const handleAction = (action: 'submit' | 'add_assessment') => {
-    if (!formData.name.trim()) {
-      alert("Chapter Name is required");
-      return;
-    }
-
-    if (isEditing) {
-      updateChapter(id!, {
-        name: formData.name,
-        skills: formData.skills,
-        pptFile: formData.pptFile,
-        notesFile: formData.notesFile,
-      });
-      if (action === 'submit') {
-        navigate('/courses/chapters');
-      } else {
-        navigate(`/courses/chapters/${id}/assessments/add`);
+      if (skillsRes.success && skillsRes.data) {
+        setSkills(skillsRes.data.skills);
       }
-    } else {
-      // Create new
-      // @ts-ignore - store update confirmed in previous step
-      const newId = addChapter({
-        name: formData.name,
-        skills: formData.skills,
-        pptFile: formData.pptFile,
-        notesFile: formData.notesFile,
-        assessments: [],
-      });
 
-      if (action === 'submit') {
-        navigate('/courses/chapters');
-      } else {
-        if (newId) {
-          navigate(`/courses/chapters/${newId}/assessments/add`);
+      // If editing, fetch chapter details
+      if (isEditing && id) {
+        const chapterRes = await chapterService.getChapterById(id);
+        if (chapterRes.success && chapterRes.data) {
+          const chapterData = chapterRes.data.chapter;
+          setChapter(chapterData);
+          setFormData({
+            name: chapterData.name,
+            moduleId: chapterData.moduleId,
+            skillIds: chapterData.skills?.map(s => s.skillId) || [],
+            orderIndex: chapterData.orderIndex,
+          });
         } else {
-          // Fallback if store didn't return ID (shouldn't happen)
+          addToast('error', 'Chapter not found');
           navigate('/courses/chapters');
         }
       }
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      addToast('error', 'Failed to load data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id, isEditing, addToast, navigate]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Set moduleId from URL param after modules are loaded
+  useEffect(() => {
+    if (moduleId && !formData.moduleId) {
+      setFormData(prev => ({ ...prev, moduleId }));
+    }
+  }, [moduleId, formData.moduleId]);
+
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    if (!formData.name.trim()) {
+      newErrors.name = 'Chapter name is required';
+    }
+    if (!formData.moduleId) {
+      newErrors.moduleId = 'Module is required';
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (redirectToAssessment: boolean = false) => {
+    if (!validate()) return;
+
+    setIsSubmitting(true);
+    try {
+      let savedChapterId = id;
+
+      if (isEditing && id) {
+        // Update existing chapter
+        const response = await chapterService.updateChapter(id, {
+          name: formData.name.trim(),
+          skillIds: formData.skillIds,
+          orderIndex: formData.orderIndex,
+        });
+
+        if (response.success) {
+          addToast('success', 'Chapter updated successfully');
+        } else {
+          addToast('error', response.error?.message || 'Failed to update chapter');
+          return;
+        }
+      } else {
+        // Create new chapter (orderIndex is auto-calculated by backend)
+        const response = await chapterService.createChapter({
+          moduleId: formData.moduleId,
+          name: formData.name.trim(),
+          skillIds: formData.skillIds.length > 0 ? formData.skillIds : undefined,
+        });
+
+        if (response.success && response.data) {
+          addToast('success', 'Chapter added successfully');
+          savedChapterId = response.data.chapter.id;
+        } else {
+          addToast('error', response.error?.message || 'Failed to create chapter');
+          return;
+        }
+      }
+
+      if (redirectToAssessment && savedChapterId) {
+        navigate(`/courses/chapters/${savedChapterId}/assessments/add`);
+      } else {
+        navigate('/courses/chapters');
+      }
+    } catch (error: unknown) {
+      console.error('Failed to save chapter:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      addToast('error', axiosError.response?.data?.error?.message || 'Failed to save chapter');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // Real implementation of handleAction to use later
-  // For now let's implement the UI.
+  const toggleSkill = (skillId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      skillIds: prev.skillIds.includes(skillId)
+        ? prev.skillIds.filter(s => s !== skillId)
+        : [...prev.skillIds, skillId],
+    }));
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
+          <span className="text-gray-500">Loading...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 max-w-5xl">
@@ -159,55 +171,102 @@ const AddChapter: React.FC = () => {
       <div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">
           <span className="text-gray-500 font-medium">Course master &rarr; </span>
-          <span className="text-purple-600">Add chapters</span>
+          <span className="text-purple-600">{isEditing ? 'Edit chapter' : 'Add chapters'}</span>
         </h1>
       </div>
 
       <div className="flex gap-8 items-start">
         {/* Left Side: Form */}
         <div className="flex-1 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-8 space-y-6">
+          {/* Module Selection */}
+          <div>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              Module *
+            </label>
+            <select
+              value={formData.moduleId}
+              onChange={(e) => {
+                setFormData({ ...formData, moduleId: e.target.value });
+                if (errors.moduleId) setErrors({ ...errors, moduleId: '' });
+              }}
+              disabled={isEditing}
+              className={`w-full px-4 py-2 border ${errors.moduleId ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'} rounded-lg focus:outline-none focus:border-primary-600 transition-all disabled:bg-gray-100 dark:disabled:bg-gray-700`}
+            >
+              <option value="">Select a module</option>
+              {modules.map(module => (
+                <option key={module.id} value={module.id}>
+                  {module.title} {module.coreSkill ? `(${module.coreSkill.name})` : ''}
+                </option>
+              ))}
+            </select>
+            {errors.moduleId && <span className="text-xs text-red-500 mt-1">{errors.moduleId}</span>}
+          </div>
+
           {/* Chapter Name */}
           <div>
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-              Chapter name:
+              Chapter name *
             </label>
             <input
               type="text"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary-600 transition-all"
+              onChange={(e) => {
+                setFormData({ ...formData, name: e.target.value });
+                if (errors.name) setErrors({ ...errors, name: '' });
+              }}
+              className={`w-full px-4 py-2 border ${errors.name ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'} rounded-lg focus:outline-none focus:border-primary-600 transition-all`}
+              placeholder="Enter chapter name"
             />
+            {errors.name && <span className="text-xs text-red-500 mt-1">{errors.name}</span>}
           </div>
+
+          {/* Order (only show for editing) */}
+          {isEditing && (
+            <div>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                Order Index
+              </label>
+              <input
+                type="number"
+                value={formData.orderIndex}
+                onChange={(e) => setFormData({ ...formData, orderIndex: parseInt(e.target.value) || 0 })}
+                min={0}
+                className="w-24 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary-600 transition-all"
+              />
+            </div>
+          )}
 
           {/* Skills */}
           <div>
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-              Skills:
+              Skills (optional)
             </label>
             <select
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary-600 transition-all"
               onChange={(e) => {
                 const val = e.target.value;
-                if (val && !formData.skills.includes(val)) {
-                  setFormData(prev => ({ ...prev, skills: [...prev.skills, val] }));
+                if (val && !formData.skillIds.includes(val)) {
+                  setFormData(prev => ({ ...prev, skillIds: [...prev.skillIds, val] }));
                 }
               }}
               value=""
             >
               <option value="">Select Skills</option>
               {skills.map(skill => (
-                <option key={skill.id} value={skill.id}>{skill.name}</option>
+                <option key={skill.id} value={skill.id} disabled={formData.skillIds.includes(skill.id)}>
+                  {skill.name}
+                </option>
               ))}
             </select>
             {/* Selected Skills Chips */}
             <div className="flex flex-wrap gap-2 mt-2">
-              {formData.skills.map(skillId => {
+              {formData.skillIds.map(skillId => {
                 const skill = skills.find(s => s.id === skillId);
                 return skill ? (
-                  <span key={skillId} className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full flex items-center gap-1">
+                  <span key={skillId} className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full flex items-center gap-1 border border-purple-100">
                     {skill.name}
                     <button
-                      onClick={() => setFormData(prev => ({ ...prev, skills: prev.skills.filter(id => id !== skillId) }))}
+                      onClick={() => toggleSkill(skillId)}
                       className="hover:text-purple-900"
                     >&times;</button>
                   </span>
@@ -216,29 +275,14 @@ const AddChapter: React.FC = () => {
             </div>
           </div>
 
-          {/* Uploads */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <label className="text-sm font-bold text-gray-700 dark:text-gray-300 w-24">Upload PPT:</label>
-              <button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
-                Upload PPT
-              </button>
-              {formData.pptFile && <span className="text-xs text-green-600">File uploaded</span>}
-            </div>
-            <div className="flex items-center gap-4">
-              <label className="text-sm font-bold text-gray-700 dark:text-gray-300 w-24">Upload Notes:</label>
-              <button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
-                Upload Notes
-              </button>
-              {formData.notesFile && <span className="text-xs text-green-600">File uploaded</span>}
-            </div>
-          </div>
-
+          {/* Add Assessments Button */}
           <div className="flex justify-end pt-4">
             <button
-              onClick={() => handleAction('add_assessment')}
-              className="px-6 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all"
+              onClick={() => handleSubmit(true)}
+              disabled={isSubmitting}
+              className="px-6 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all disabled:opacity-50 flex items-center gap-2"
             >
+              {isSubmitting && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
               Add assessments
             </button>
           </div>
@@ -246,47 +290,56 @@ const AddChapter: React.FC = () => {
       </div>
 
       {/* Assessments List (Only for Editing) */}
-      {isEditing && (
+      {isEditing && chapter && chapter.assessments && chapter.assessments.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Assessments in this chapter</h3>
-          {getChapterData()?.assessments && getChapterData()!.assessments.length > 0 ? (
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-6 py-4 text-xs font-bold uppercase text-gray-400">Title</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase text-gray-400">Type</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase text-gray-400">Questions</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase text-gray-400">Actions</th>
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Assessments in this chapter</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold uppercase text-gray-400">Title</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase text-gray-400">Kind</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase text-gray-400">Questions</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase text-gray-400">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {chapter.assessments.map(assessment => (
+                  <tr key={assessment.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">{assessment.title}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{assessment.kind}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{assessment._count?.questions || 0}</td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => navigate(`/courses/chapters/${id}/assessments/${assessment.id}/questions`)}
+                        className="text-purple-600 hover:underline text-sm"
+                      >
+                        Edit Questions
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {getChapterData()!.assessments.map(assessment => (
-                    <tr key={assessment.id}>
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{assessment.title}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{assessment.type}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{assessment.questions.length}</td>
-                      <td className="px-6 py-4">
-                        <button onClick={() => navigate(`/courses/assessments/${assessment.id}/questions`)} className="text-purple-600 hover:underline text-sm">Edit</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-gray-500 text-sm">No assessments added yet.</p>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {/* Final Actions */}
-      <div className="flex justify-end pt-4">
+      <div className="flex justify-between items-center pt-4">
         <button
-          onClick={() => handleAction('submit')}
-          className="px-8 py-2.5 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700 shadow-lg shadow-purple-200 transition-all"
+          onClick={() => navigate('/courses/chapters')}
+          className="px-6 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
         >
-          Add chapters
+          Cancel
+        </button>
+        <button
+          onClick={() => handleSubmit(false)}
+          disabled={isSubmitting}
+          className="px-8 py-2.5 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700 shadow-lg shadow-purple-200 dark:shadow-none transition-all disabled:opacity-50 flex items-center gap-2"
+        >
+          {isSubmitting && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
+          {isEditing ? 'Update chapter' : 'Add chapter'}
         </button>
       </div>
     </div>
