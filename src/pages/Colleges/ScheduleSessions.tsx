@@ -26,9 +26,13 @@ const ScheduleSessions: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'sessions' | 'attendance'>(initialTab);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [selectedBatchFilter, setSelectedBatchFilter] = useState<string>('');
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; chapter: string }>({ isOpen: false, id: '', chapter: '' });
+
+  // Calendar state
+  const [currentMonth, setCurrentMonth] = useState(new Date());
 
   const [sessionForm, setSessionForm] = useState({
     date: '',
@@ -171,6 +175,157 @@ const ScheduleSessions: React.FC = () => {
   };
 
   const sortedSessions = [...sessions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  // Calendar helper functions
+  const getDaysInMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const getSessionsForDate = (day: number) => {
+    return sessions.filter(session => {
+      const sessionDate = new Date(session.date);
+      return sessionDate.getDate() === day &&
+        sessionDate.getMonth() === currentMonth.getMonth() &&
+        sessionDate.getFullYear() === currentMonth.getFullYear();
+    });
+  };
+
+  const goToPreviousMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  };
+
+  const goToNextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+  };
+
+  const goToToday = () => {
+    setCurrentMonth(new Date());
+  };
+
+  const isToday = (day: number) => {
+    const today = new Date();
+    return day === today.getDate() &&
+      currentMonth.getMonth() === today.getMonth() &&
+      currentMonth.getFullYear() === today.getFullYear();
+  };
+
+  const renderCalendarView = () => {
+    const daysInMonth = getDaysInMonth(currentMonth);
+    const firstDay = getFirstDayOfMonth(currentMonth);
+    const days = [];
+    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<div key={`empty-${i}`} className="h-24 bg-gray-50 dark:bg-gray-900/50"></div>);
+    }
+
+    // Add cells for each day of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const daySessions = getSessionsForDate(day);
+      const isPast = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day) < new Date(new Date().setHours(0, 0, 0, 0));
+
+      days.push(
+        <div
+          key={day}
+          className={`min-h-24 p-2 border-b border-r border-gray-100 dark:border-gray-700 ${
+            isToday(day) ? 'bg-primary-50 dark:bg-primary-900/20' : isPast ? 'bg-gray-50 dark:bg-gray-900/30' : 'bg-white dark:bg-gray-800'
+          }`}
+        >
+          <div className={`text-sm font-medium mb-1 ${
+            isToday(day) ? 'text-primary-700 dark:text-primary-400' : isPast ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'
+          }`}>
+            {day}
+          </div>
+          <div className="space-y-1 overflow-y-auto max-h-16">
+            {daySessions.map((session) => (
+              <div
+                key={session.id}
+                onClick={() => navigate(`/attendance/session/${session.id}`)}
+                className={`text-xs p-1 rounded cursor-pointer truncate ${
+                  isPast
+                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                    : 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 hover:bg-primary-200 dark:hover:bg-primary-900/60'
+                }`}
+                title={`${session.chapter?.name || 'Session'} - ${session.batch?.name || 'Batch'}`}
+              >
+                {session.chapter?.name?.substring(0, 15) || 'Session'}
+                {(session.chapter?.name?.length || 0) > 15 ? '...' : ''}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+        {/* Calendar Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={goToPreviousMonth}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <span className="material-symbols-outlined">chevron_left</span>
+            </button>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white min-w-[200px] text-center">
+              {currentMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+            </h3>
+            <button
+              onClick={goToNextMonth}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <span className="material-symbols-outlined">chevron_right</span>
+            </button>
+          </div>
+          <button
+            onClick={goToToday}
+            className="px-4 py-2 text-sm text-primary-600 border border-primary-600 rounded-lg hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+          >
+            Today
+          </button>
+        </div>
+
+        {/* Week Days Header */}
+        <div className="grid grid-cols-7 border-b border-gray-100 dark:border-gray-700">
+          {weekDays.map((day) => (
+            <div
+              key={day}
+              className="p-3 text-center text-xs font-bold uppercase text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50"
+            >
+              {day}
+            </div>
+          ))}
+        </div>
+
+        {/* Calendar Grid */}
+        <div className="grid grid-cols-7">
+          {days}
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-6 p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-primary-100 dark:bg-primary-900/40"></div>
+            <span className="text-xs text-gray-600 dark:text-gray-400">Upcoming Session</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-gray-200 dark:bg-gray-700"></div>
+            <span className="text-xs text-gray-600 dark:text-gray-400">Past Session</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-700"></div>
+            <span className="text-xs text-gray-600 dark:text-gray-400">Today</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (isLoading) {
     return (
@@ -336,6 +491,31 @@ const ScheduleSessions: React.FC = () => {
                   ))}
                 </select>
               )}
+              {/* View Toggle */}
+              <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-xl p-1">
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 ${
+                    viewMode === 'list'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">view_list</span>
+                  List
+                </button>
+                <button
+                  onClick={() => setViewMode('calendar')}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 ${
+                    viewMode === 'calendar'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">calendar_view_month</span>
+                  Calendar
+                </button>
+              </div>
             </div>
             <button
               onClick={() => setIsSessionModalOpen(true)}
@@ -359,6 +539,8 @@ const ScheduleSessions: React.FC = () => {
                 Create Batch
               </button>
             </div>
+          ) : viewMode === 'calendar' ? (
+            renderCalendarView()
           ) : sortedSessions.length === 0 ? (
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-12 text-center">
               <span className="material-symbols-outlined text-5xl text-gray-300 mb-4">event_busy</span>

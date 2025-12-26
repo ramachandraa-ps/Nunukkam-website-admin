@@ -8,6 +8,9 @@ import Badge from '../../components/ui/Badge';
 import userService from '../../services/userService';
 import { ApiUser, UserRole } from '../../types/user';
 
+type SortField = 'username' | 'email' | 'role' | 'designation';
+type SortOrder = 'asc' | 'desc';
+
 const UserManagement: React.FC = () => {
   const navigate = useNavigate();
   const { addToast } = useStore();
@@ -18,6 +21,8 @@ const UserManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | ''>('');
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string }>({ isOpen: false, id: '', name: '' });
+  const [sortField, setSortField] = useState<SortField>('username');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -62,6 +67,36 @@ const UserManagement: React.FC = () => {
       user.email.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch;
   });
+
+  // Sort users
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    let comparison = 0;
+    if (sortField === 'username') {
+      comparison = a.username.localeCompare(b.username);
+    } else if (sortField === 'email') {
+      comparison = a.email.localeCompare(b.email);
+    } else if (sortField === 'role') {
+      comparison = a.role.localeCompare(b.role);
+    } else if (sortField === 'designation') {
+      comparison = (a.designation?.title || '').localeCompare(b.designation?.title || '');
+    }
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => (
+    <span className={`material-symbols-outlined text-sm ml-1 ${sortField === field ? 'text-primary-600' : 'text-gray-400'}`}>
+      {sortField === field ? (sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+    </span>
+  );
 
   // Handle deactivate user
   const handleDelete = async () => {
@@ -178,31 +213,52 @@ const UserManagement: React.FC = () => {
               <tr>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">Sl.no</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">User ID</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">User Name</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">Designation</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">Email</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">Role</th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('username')}
+                >
+                  <span className="flex items-center">User Name<SortIcon field="username" /></span>
+                </th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('designation')}
+                >
+                  <span className="flex items-center">Designation<SortIcon field="designation" /></span>
+                </th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">Reporting Manager</th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('email')}
+                >
+                  <span className="flex items-center">Email<SortIcon field="email" /></span>
+                </th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('role')}
+                >
+                  <span className="flex items-center">Role<SortIcon field="role" /></span>
+                </th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
+                  <td colSpan={8} className="px-6 py-12 text-center">
                     <div className="flex items-center justify-center gap-3">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
                       <span className="text-gray-500">Loading users...</span>
                     </div>
                   </td>
                 </tr>
-              ) : filteredUsers.length === 0 ? (
+              ) : sortedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                     {searchTerm || roleFilter ? 'No users found matching your search.' : 'No active users. Add your first user.'}
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((user, idx) => (
+                sortedUsers.map((user, idx) => (
                   <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 font-medium">
                       {(currentPage - 1) * limit + idx + 1}
@@ -218,6 +274,9 @@ const UserManagement: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 font-medium">
                       {user.designation?.title || '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 font-medium">
+                      {user.manager?.username || '-'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{user.email}</td>
                     <td className="px-6 py-4">

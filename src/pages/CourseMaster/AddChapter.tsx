@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import chapterService from '../../services/chapterService';
 import moduleService from '../../services/moduleService';
 import skillService from '../../services/skillService';
+import uploadService from '../../services/uploadService';
 import { ApiChapter, ApiSkill, ApiModule } from '../../types/course';
 
 const AddChapter: React.FC = () => {
@@ -17,12 +18,21 @@ const AddChapter: React.FC = () => {
   const [skills, setSkills] = useState<ApiSkill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingPpt, setIsUploadingPpt] = useState(false);
+  const [isUploadingNotes, setIsUploadingNotes] = useState(false);
+
+  const pptInputRef = useRef<HTMLInputElement>(null);
+  const notesInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     name: '',
     moduleId: moduleId || '',
     skillIds: [] as string[],
     orderIndex: 0,
+    pptFile: '' as string,
+    notesFile: '' as string,
+    pptFileName: '' as string,
+    notesFileName: '' as string,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -56,6 +66,10 @@ const AddChapter: React.FC = () => {
             moduleId: chapterData.moduleId,
             skillIds: chapterData.skills?.map(s => s.skillId) || [],
             orderIndex: chapterData.orderIndex,
+            pptFile: chapterData.pptFile || '',
+            notesFile: chapterData.notesFile || '',
+            pptFileName: chapterData.pptFile ? getFileNameFromUrl(chapterData.pptFile) : '',
+            notesFileName: chapterData.notesFile ? getFileNameFromUrl(chapterData.notesFile) : '',
           });
         } else {
           addToast('error', 'Chapter not found');
@@ -80,6 +94,103 @@ const AddChapter: React.FC = () => {
       setFormData(prev => ({ ...prev, moduleId }));
     }
   }, [moduleId, formData.moduleId]);
+
+  // Helper to extract filename from URL
+  const getFileNameFromUrl = (url: string): string => {
+    try {
+      const parts = url.split('/');
+      return parts[parts.length - 1] || 'Uploaded file';
+    } catch {
+      return 'Uploaded file';
+    }
+  };
+
+  // Handle PPT file upload
+  const handlePptUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = [
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/pdf'
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      addToast('error', 'Please upload a PPT, PPTX, or PDF file');
+      return;
+    }
+
+    setIsUploadingPpt(true);
+    try {
+      const response = await uploadService.uploadFile(file, 'courseAssets', 'document', 'ppt');
+      if (response.success && response.data) {
+        setFormData(prev => ({
+          ...prev,
+          pptFile: response.data!.file.url,
+          pptFileName: file.name,
+        }));
+        addToast('success', 'PPT uploaded successfully');
+      } else {
+        addToast('error', 'Failed to upload PPT');
+      }
+    } catch (error) {
+      console.error('PPT upload failed:', error);
+      addToast('error', 'Failed to upload PPT');
+    } finally {
+      setIsUploadingPpt(false);
+    }
+  };
+
+  // Handle Notes file upload
+  const handleNotesUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = [
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      addToast('error', 'Please upload a PPT, PPTX, PDF, DOC, or DOCX file');
+      return;
+    }
+
+    setIsUploadingNotes(true);
+    try {
+      const response = await uploadService.uploadFile(file, 'courseAssets', 'document', 'notes');
+      if (response.success && response.data) {
+        setFormData(prev => ({
+          ...prev,
+          notesFile: response.data!.file.url,
+          notesFileName: file.name,
+        }));
+        addToast('success', 'Notes uploaded successfully');
+      } else {
+        addToast('error', 'Failed to upload notes');
+      }
+    } catch (error) {
+      console.error('Notes upload failed:', error);
+      addToast('error', 'Failed to upload notes');
+    } finally {
+      setIsUploadingNotes(false);
+    }
+  };
+
+  // Remove uploaded file
+  const removeFile = (type: 'ppt' | 'notes') => {
+    if (type === 'ppt') {
+      setFormData(prev => ({ ...prev, pptFile: '', pptFileName: '' }));
+      if (pptInputRef.current) pptInputRef.current.value = '';
+    } else {
+      setFormData(prev => ({ ...prev, notesFile: '', notesFileName: '' }));
+      if (notesInputRef.current) notesInputRef.current.value = '';
+    }
+  };
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -106,6 +217,8 @@ const AddChapter: React.FC = () => {
           name: formData.name.trim(),
           skillIds: formData.skillIds,
           orderIndex: formData.orderIndex,
+          pptFile: formData.pptFile || undefined,
+          notesFile: formData.notesFile || undefined,
         });
 
         if (response.success) {
@@ -120,6 +233,8 @@ const AddChapter: React.FC = () => {
           moduleId: formData.moduleId,
           name: formData.name.trim(),
           skillIds: formData.skillIds.length > 0 ? formData.skillIds : undefined,
+          pptFile: formData.pptFile || undefined,
+          notesFile: formData.notesFile || undefined,
         });
 
         if (response.success && response.data) {
@@ -220,26 +335,10 @@ const AddChapter: React.FC = () => {
             {errors.name && <span className="text-xs text-red-500 mt-1">{errors.name}</span>}
           </div>
 
-          {/* Order (only show for editing) */}
-          {isEditing && (
-            <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                Order Index
-              </label>
-              <input
-                type="number"
-                value={formData.orderIndex}
-                onChange={(e) => setFormData({ ...formData, orderIndex: parseInt(e.target.value) || 0 })}
-                min={0}
-                className="w-24 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary-600 transition-all"
-              />
-            </div>
-          )}
-
           {/* Skills */}
           <div>
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-              Skills (optional)
+              Select Skills
             </label>
             <select
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary-600 transition-all"
@@ -275,11 +374,137 @@ const AddChapter: React.FC = () => {
             </div>
           </div>
 
+          {/* Upload PPT */}
+          <div>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              Upload PPT
+              <span className="text-xs font-normal text-gray-400 ml-2">(PPT, PPTX, PDF)</span>
+            </label>
+            <input
+              ref={pptInputRef}
+              type="file"
+              accept=".ppt,.pptx,.pdf"
+              onChange={handlePptUpload}
+              className="hidden"
+              id="ppt-upload"
+            />
+            {formData.pptFile ? (
+              <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <span className="material-symbols-outlined text-green-600">description</span>
+                <span className="flex-1 text-sm text-green-700 dark:text-green-400 truncate">
+                  {formData.pptFileName}
+                </span>
+                <a
+                  href={formData.pptFile}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-green-600 hover:text-green-700 text-sm font-medium"
+                >
+                  View
+                </a>
+                <button
+                  onClick={() => removeFile('ppt')}
+                  className="text-red-500 hover:text-red-600"
+                >
+                  <span className="material-symbols-outlined text-lg">close</span>
+                </button>
+              </div>
+            ) : (
+              <label
+                htmlFor="ppt-upload"
+                className={`flex items-center justify-center gap-2 p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/10 transition-all ${isUploadingPpt ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {isUploadingPpt ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
+                    <span className="text-sm text-gray-500">Uploading...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-gray-400">cloud_upload</span>
+                    <span className="text-sm text-gray-500">Click to upload PPT file</span>
+                  </>
+                )}
+              </label>
+            )}
+          </div>
+
+          {/* Upload Notes */}
+          <div>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              Upload Notes
+              <span className="text-xs font-normal text-gray-400 ml-2">(PPT, PPTX, PDF, DOC, DOCX)</span>
+            </label>
+            <input
+              ref={notesInputRef}
+              type="file"
+              accept=".ppt,.pptx,.pdf,.doc,.docx"
+              onChange={handleNotesUpload}
+              className="hidden"
+              id="notes-upload"
+            />
+            {formData.notesFile ? (
+              <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <span className="material-symbols-outlined text-green-600">description</span>
+                <span className="flex-1 text-sm text-green-700 dark:text-green-400 truncate">
+                  {formData.notesFileName}
+                </span>
+                <a
+                  href={formData.notesFile}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-green-600 hover:text-green-700 text-sm font-medium"
+                >
+                  View
+                </a>
+                <button
+                  onClick={() => removeFile('notes')}
+                  className="text-red-500 hover:text-red-600"
+                >
+                  <span className="material-symbols-outlined text-lg">close</span>
+                </button>
+              </div>
+            ) : (
+              <label
+                htmlFor="notes-upload"
+                className={`flex items-center justify-center gap-2 p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/10 transition-all ${isUploadingNotes ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {isUploadingNotes ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
+                    <span className="text-sm text-gray-500">Uploading...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-gray-400">cloud_upload</span>
+                    <span className="text-sm text-gray-500">Click to upload Notes file</span>
+                  </>
+                )}
+              </label>
+            )}
+          </div>
+
+          {/* Order (only show for editing) */}
+          {isEditing && (
+            <div>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                Order Index
+              </label>
+              <input
+                type="number"
+                value={formData.orderIndex}
+                onChange={(e) => setFormData({ ...formData, orderIndex: parseInt(e.target.value) || 0 })}
+                min={0}
+                className="w-24 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary-600 transition-all"
+              />
+            </div>
+          )}
+
           {/* Add Assessments Button */}
           <div className="flex justify-end pt-4">
             <button
               onClick={() => handleSubmit(true)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isUploadingPpt || isUploadingNotes}
               className="px-6 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all disabled:opacity-50 flex items-center gap-2"
             >
               {isSubmitting && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
@@ -308,7 +533,7 @@ const AddChapter: React.FC = () => {
                   <tr key={assessment.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">{assessment.title}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{assessment.kind}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{assessment._count?.questions || 0}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{(assessment as unknown as { _count?: { questions?: number } })._count?.questions || 0}</td>
                     <td className="px-6 py-4">
                       <button
                         onClick={() => navigate(`/courses/chapters/${id}/assessments/${assessment.id}/questions`)}
@@ -335,7 +560,7 @@ const AddChapter: React.FC = () => {
         </button>
         <button
           onClick={() => handleSubmit(false)}
-          disabled={isSubmitting}
+          disabled={isSubmitting || isUploadingPpt || isUploadingNotes}
           className="px-8 py-2.5 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700 shadow-lg shadow-purple-200 dark:shadow-none transition-all disabled:opacity-50 flex items-center gap-2"
         >
           {isSubmitting && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}

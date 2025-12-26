@@ -5,6 +5,9 @@ import chapterService from '../../services/chapterService';
 import { ApiChapter } from '../../types/course';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
 
+type SortField = 'name' | 'module' | 'assessments';
+type SortOrder = 'asc' | 'desc';
+
 const Chapters: React.FC = () => {
   const navigate = useNavigate();
   const { addToast } = useStore();
@@ -12,7 +15,9 @@ const Chapters: React.FC = () => {
   const [chapters, setChapters] = useState<ApiChapter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string }>({ isOpen: false, id: '', name: '' });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string; assessmentCount: number }>({ isOpen: false, id: '', name: '', assessmentCount: 0 });
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
   // Fetch chapters from API
   const fetchChapters = useCallback(async () => {
@@ -47,6 +52,34 @@ const Chapters: React.FC = () => {
     chapter.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Sort chapters
+  const sortedChapters = [...filteredChapters].sort((a, b) => {
+    let comparison = 0;
+    if (sortField === 'name') {
+      comparison = a.name.localeCompare(b.name);
+    } else if (sortField === 'module') {
+      comparison = (a.module?.title || '').localeCompare(b.module?.title || '');
+    } else if (sortField === 'assessments') {
+      comparison = (a._count?.assessments ?? 0) - (b._count?.assessments ?? 0);
+    }
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => (
+    <span className={`material-symbols-outlined text-sm ml-1 ${sortField === field ? 'text-primary-600' : 'text-gray-400'}`}>
+      {sortField === field ? (sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+    </span>
+  );
+
   const getSkillNames = (chapter: ApiChapter) => {
     if (!chapter.skills || chapter.skills.length === 0) return '-';
     return chapter.skills.map(s => s.skill.name).join(', ');
@@ -66,7 +99,7 @@ const Chapters: React.FC = () => {
       const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
       addToast('error', axiosError.response?.data?.error?.message || 'Failed to delete chapter');
     } finally {
-      setDeleteConfirm({ isOpen: false, id: '', name: '' });
+      setDeleteConfirm({ isOpen: false, id: '', name: '', assessmentCount: 0 });
     }
   };
 
@@ -85,10 +118,13 @@ const Chapters: React.FC = () => {
     <div className="space-y-8">
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ isOpen: false, id: '', name: '' })}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', name: '', assessmentCount: 0 })}
         onConfirm={handleDelete}
         title="Delete Chapter"
-        message={`Are you sure you want to delete "${deleteConfirm.name}"? All associated assessments will also be deleted.`}
+        message={deleteConfirm.assessmentCount > 0
+          ? `Warning: "${deleteConfirm.name}" has ${deleteConfirm.assessmentCount} assessment(s). Deleting this chapter will permanently delete all associated assessments and their questions. This action cannot be undone.`
+          : `Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`
+        }
         confirmText="Delete"
         type="danger"
       />
@@ -146,23 +182,38 @@ const Chapters: React.FC = () => {
             <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
               <tr>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Sl.No</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Chapter name</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Module</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Assessments</th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('name')}
+                >
+                  <span className="flex items-center">Chapter name<SortIcon field="name" /></span>
+                </th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('module')}
+                >
+                  <span className="flex items-center">Module<SortIcon field="module" /></span>
+                </th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('assessments')}
+                >
+                  <span className="flex items-center">Assessments<SortIcon field="assessments" /></span>
+                </th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Skills</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Files</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-              {filteredChapters.length === 0 ? (
+              {sortedChapters.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     No chapters found matching your search.
                   </td>
                 </tr>
               ) : (
-                filteredChapters.map((chapter, idx) => (
+                sortedChapters.map((chapter, idx) => (
                   <tr key={chapter.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                     <td className="px-6 py-4 text-sm text-gray-500 font-medium">{idx + 1}</td>
                     <td className="px-6 py-4">
@@ -217,7 +268,7 @@ const Chapters: React.FC = () => {
                           <span className="material-symbols-outlined text-[20px]">edit</span>
                         </button>
                         <button
-                          onClick={() => setDeleteConfirm({ isOpen: true, id: chapter.id, name: chapter.name })}
+                          onClick={() => setDeleteConfirm({ isOpen: true, id: chapter.id, name: chapter.name, assessmentCount: chapter._count?.assessments ?? chapter.assessments?.length ?? 0 })}
                           className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                           title="Delete chapter"
                         >

@@ -474,6 +474,18 @@ const Roles: React.FC = () => {
                   {getPermissionSummary(rolePermission.permissions)}
                 </p>
               </div>
+
+              {/* Audit Info */}
+              <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <div>
+                    <span className="font-medium">Created:</span> {new Date(rolePermission.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </div>
+                  <div>
+                    <span className="font-medium">Updated:</span> {new Date(rolePermission.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </div>
+                </div>
+              </div>
             </div>
           ))}
         </div>

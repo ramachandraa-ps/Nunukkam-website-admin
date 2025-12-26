@@ -4,6 +4,9 @@ import skillService from '../../services/skillService';
 import { ApiSkill } from '../../types/course';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
 
+type SortField = 'name' | 'chapters';
+type SortOrder = 'asc' | 'desc';
+
 const Skills: React.FC = () => {
   const { addToast } = useStore();
 
@@ -13,8 +16,10 @@ const Skills: React.FC = () => {
 
   const [formData, setFormData] = useState({ name: '', description: '' });
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string }>({ isOpen: false, id: '', name: '' });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string; chapterCount: number }>({ isOpen: false, id: '', name: '', chapterCount: 0 });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
   // Fetch skills from API
   const fetchSkills = useCallback(async () => {
@@ -37,6 +42,32 @@ const Skills: React.FC = () => {
   useEffect(() => {
     fetchSkills();
   }, [fetchSkills]);
+
+  // Sort skills
+  const sortedSkills = [...skills].sort((a, b) => {
+    let comparison = 0;
+    if (sortField === 'name') {
+      comparison = a.name.localeCompare(b.name);
+    } else if (sortField === 'chapters') {
+      comparison = (a._count?.chapters ?? 0) - (b._count?.chapters ?? 0);
+    }
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => (
+    <span className={`material-symbols-outlined text-sm ml-1 ${sortField === field ? 'text-primary-600' : 'text-gray-400'}`}>
+      {sortField === field ? (sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+    </span>
+  );
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -115,7 +146,7 @@ const Skills: React.FC = () => {
       const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
       addToast('error', axiosError.response?.data?.error?.message || 'Failed to delete skill');
     } finally {
-      setDeleteConfirm({ isOpen: false, id: '', name: '' });
+      setDeleteConfirm({ isOpen: false, id: '', name: '', chapterCount: 0 });
     }
   };
 
@@ -134,10 +165,13 @@ const Skills: React.FC = () => {
     <div className="space-y-8">
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ isOpen: false, id: '', name: '' })}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', name: '', chapterCount: 0 })}
         onConfirm={handleDelete}
         title="Delete Skill"
-        message={`Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`}
+        message={deleteConfirm.chapterCount > 0
+          ? `Warning: "${deleteConfirm.name}" is used in ${deleteConfirm.chapterCount} chapter(s). Deleting this will remove it from all associated chapters. This action cannot be undone.`
+          : `Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`
+        }
         confirmText="Delete"
         type="danger"
       />
@@ -212,21 +246,31 @@ const Skills: React.FC = () => {
           <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
             <tr>
               <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Sl.No</th>
-              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Skill Name</th>
+              <th
+                className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 cursor-pointer hover:text-primary-600 select-none"
+                onClick={() => handleSort('name')}
+              >
+                <span className="flex items-center">Skill Name<SortIcon field="name" /></span>
+              </th>
               <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Description</th>
-              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400">Chapters</th>
+              <th
+                className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 cursor-pointer hover:text-primary-600 select-none"
+                onClick={() => handleSort('chapters')}
+              >
+                <span className="flex items-center">Chapters<SortIcon field="chapters" /></span>
+              </th>
               <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 text-center">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-            {skills.length === 0 ? (
+            {sortedSkills.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                   No skills added yet. Add your first skill above.
                 </td>
               </tr>
             ) : (
-              skills.map((skill, idx) => (
+              sortedSkills.map((skill, idx) => (
                 <tr key={skill.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                   <td className="px-6 py-4 text-sm text-gray-500 font-medium">{idx + 1}</td>
                   <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white">{skill.name}</td>
@@ -246,7 +290,7 @@ const Skills: React.FC = () => {
                         <span className="material-symbols-outlined">edit</span>
                       </button>
                       <button
-                        onClick={() => setDeleteConfirm({ isOpen: true, id: skill.id, name: skill.name })}
+                        onClick={() => setDeleteConfirm({ isOpen: true, id: skill.id, name: skill.name, chapterCount: skill._count?.chapters ?? 0 })}
                         className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
                         title="Delete skill"
                       >

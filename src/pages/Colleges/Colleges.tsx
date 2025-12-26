@@ -8,6 +8,9 @@ import Badge from '../../components/ui/Badge';
 import collegeService from '../../services/collegeService';
 import { ApiCollege } from '../../types/college';
 
+type SortField = 'name' | 'university' | 'city' | 'students' | 'batches';
+type SortOrder = 'asc' | 'desc';
+
 const Colleges: React.FC = () => {
   const navigate = useNavigate();
   const { addToast } = useStore();
@@ -15,7 +18,9 @@ const Colleges: React.FC = () => {
   const [colleges, setColleges] = useState<ApiCollege[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string }>({ isOpen: false, id: '', name: '' });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string; studentCount: number; batchCount: number }>({ isOpen: false, id: '', name: '', studentCount: 0, batchCount: 0 });
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
   // Fetch colleges from API
   const fetchColleges = useCallback(async () => {
@@ -51,7 +56,7 @@ const Colleges: React.FC = () => {
       const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
       addToast('error', axiosError.response?.data?.error?.message || 'Failed to delete college');
     } finally {
-      setDeleteConfirm({ isOpen: false, id: '', name: '' });
+      setDeleteConfirm({ isOpen: false, id: '', name: '', studentCount: 0, batchCount: 0 });
     }
   };
 
@@ -59,6 +64,38 @@ const Colleges: React.FC = () => {
     college.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     college.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
     college.state.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Sort colleges
+  const sortedColleges = [...filteredColleges].sort((a, b) => {
+    let comparison = 0;
+    if (sortField === 'name') {
+      comparison = a.name.localeCompare(b.name);
+    } else if (sortField === 'university') {
+      comparison = a.affiliatedUniversity.localeCompare(b.affiliatedUniversity);
+    } else if (sortField === 'city') {
+      comparison = a.city.localeCompare(b.city);
+    } else if (sortField === 'students') {
+      comparison = (a._count?.students || 0) - (b._count?.students || 0);
+    } else if (sortField === 'batches') {
+      comparison = (a._count?.batches || 0) - (b._count?.batches || 0);
+    }
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => (
+    <span className={`material-symbols-outlined text-sm ml-1 ${sortField === field ? 'text-primary-600' : 'text-gray-400'}`}>
+      {sortField === field ? (sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+    </span>
   );
 
   if (isLoading) {
@@ -76,10 +113,13 @@ const Colleges: React.FC = () => {
     <div className="space-y-8">
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ isOpen: false, id: '', name: '' })}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', name: '', studentCount: 0, batchCount: 0 })}
         onConfirm={handleDelete}
         title="Delete College"
-        message={`Are you sure you want to delete "${deleteConfirm.name}"? All associated batches and students will also be affected.`}
+        message={deleteConfirm.studentCount > 0 || deleteConfirm.batchCount > 0
+          ? `Warning: "${deleteConfirm.name}" has ${deleteConfirm.batchCount} batch(es) and ${deleteConfirm.studentCount} student(s). Deleting this will permanently remove all associated batches, students, and their records. This action cannot be undone.`
+          : `Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`
+        }
         confirmText="Delete"
         type="danger"
       />
@@ -109,16 +149,36 @@ const Colleges: React.FC = () => {
             <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
               <tr>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">Sl.no</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">College Name</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">University</th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('name')}
+                >
+                  <span className="flex items-center">College Name<SortIcon field="name" /></span>
+                </th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('university')}
+                >
+                  <span className="flex items-center">University<SortIcon field="university" /></span>
+                </th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">POC Name</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">City</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300">Stats</th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('city')}
+                >
+                  <span className="flex items-center">City<SortIcon field="city" /></span>
+                </th>
+                <th
+                  className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 cursor-pointer hover:text-primary-600 select-none"
+                  onClick={() => handleSort('students')}
+                >
+                  <span className="flex items-center">Stats<SortIcon field="students" /></span>
+                </th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-300 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-              {filteredColleges.length === 0 ? (
+              {sortedColleges.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center">
                     <span className="material-symbols-outlined text-5xl text-gray-300 mb-4 block">school</span>
@@ -131,7 +191,7 @@ const Colleges: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredColleges.map((college, idx) => (
+                sortedColleges.map((college, idx) => (
                   <tr key={college.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                     <td className="px-6 py-4 text-sm font-medium text-gray-500 dark:text-gray-400">{idx + 1}</td>
                     <td className="px-6 py-4">
@@ -191,7 +251,7 @@ const Colleges: React.FC = () => {
                           <span className="material-symbols-outlined">edit</span>
                         </button>
                         <button
-                          onClick={() => setDeleteConfirm({ isOpen: true, id: college.id, name: college.name })}
+                          onClick={() => setDeleteConfirm({ isOpen: true, id: college.id, name: college.name, studentCount: college._count?.students || 0, batchCount: college._count?.batches || 0 })}
                           className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-all"
                           title="Delete"
                         >

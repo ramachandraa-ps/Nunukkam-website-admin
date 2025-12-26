@@ -6,6 +6,9 @@ import courseService from '../../services/courseService';
 import { ApiCoreSkill, ApiCourse } from '../../types/course';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
 
+type SortField = 'name' | 'courses';
+type SortOrder = 'asc' | 'desc';
+
 const CoreSkills: React.FC = () => {
   const { courseId } = useParams();
   const navigate = useNavigate();
@@ -19,9 +22,11 @@ const CoreSkills: React.FC = () => {
 
   const [newSkill, setNewSkill] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string }>({ isOpen: false, id: '', name: '' });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string; mappedCount: number }>({ isOpen: false, id: '', name: '', mappedCount: 0 });
   const [isAdding, setIsAdding] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
   // Fetch data
   const fetchData = useCallback(async () => {
@@ -110,7 +115,7 @@ const CoreSkills: React.FC = () => {
       const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
       addToast('error', axiosError.response?.data?.error?.message || 'Failed to delete core skill');
     } finally {
-      setDeleteConfirm({ isOpen: false, id: '', name: '' });
+      setDeleteConfirm({ isOpen: false, id: '', name: '', mappedCount: 0 });
     }
   };
 
@@ -119,6 +124,34 @@ const CoreSkills: React.FC = () => {
       .filter(c => c.coreSkills?.some(cs => cs.coreSkill.id === skillId))
       .map(c => c.title);
   };
+
+  // Sort core skills
+  const sortedCoreSkills = [...coreSkills].sort((a, b) => {
+    let comparison = 0;
+    if (sortField === 'name') {
+      comparison = a.name.localeCompare(b.name);
+    } else if (sortField === 'courses') {
+      const aCourses = getCoursesForSkill(a.id).length;
+      const bCourses = getCoursesForSkill(b.id).length;
+      comparison = aCourses - bCourses;
+    }
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => (
+    <span className={`material-symbols-outlined text-sm ml-1 ${sortField === field ? 'text-primary-600' : 'text-gray-400'}`}>
+      {sortField === field ? (sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+    </span>
+  );
 
   if (isLoading) {
     return (
@@ -195,10 +228,13 @@ const CoreSkills: React.FC = () => {
     <div className="space-y-8">
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ isOpen: false, id: '', name: '' })}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', name: '', mappedCount: 0 })}
         onConfirm={handleDelete}
         title="Delete Core Skill"
-        message={`Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`}
+        message={deleteConfirm.mappedCount > 0
+          ? `Warning: "${deleteConfirm.name}" is mapped to ${deleteConfirm.mappedCount} course(s). Deleting this will remove it from all mapped courses. This action cannot be undone.`
+          : `Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`
+        }
         confirmText="Delete"
         type="danger"
       />
@@ -273,21 +309,31 @@ const CoreSkills: React.FC = () => {
             <table className="w-full text-left">
               <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
                 <tr>
-                  <th className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white w-1/4">Core Skill</th>
+                  <th
+                    className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white w-1/4 cursor-pointer hover:text-primary-600 select-none"
+                    onClick={() => handleSort('name')}
+                  >
+                    <span className="flex items-center">Core Skill<SortIcon field="name" /></span>
+                  </th>
                   <th className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white w-1/4">Description</th>
-                  <th className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white">Mapped to courses</th>
+                  <th
+                    className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white cursor-pointer hover:text-primary-600 select-none"
+                    onClick={() => handleSort('courses')}
+                  >
+                    <span className="flex items-center">Mapped to courses<SortIcon field="courses" /></span>
+                  </th>
                   <th className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {coreSkills.length === 0 ? (
+                {sortedCoreSkills.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
                       No core skills added yet.
                     </td>
                   </tr>
                 ) : (
-                  coreSkills.map((skill) => {
+                  sortedCoreSkills.map((skill) => {
                     const mappedCourses = getCoursesForSkill(skill.id);
                     return (
                       <tr key={skill.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
@@ -298,11 +344,21 @@ const CoreSkills: React.FC = () => {
                           {skill.description || '-'}
                         </td>
                         <td className="px-6 py-4 text-gray-600 dark:text-gray-400">
-                          {mappedCourses.length > 0 ? mappedCourses.join(', ') : '-'}
+                          {mappedCourses.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {mappedCourses.map((courseName, idx) => (
+                                <span key={idx} className="px-2 py-0.5 bg-primary-50 text-primary-700 text-xs rounded-full">
+                                  {courseName}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 italic">Not mapped</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button
-                            onClick={() => setDeleteConfirm({ isOpen: true, id: skill.id, name: skill.name })}
+                            onClick={() => setDeleteConfirm({ isOpen: true, id: skill.id, name: skill.name, mappedCount: mappedCourses.length })}
                             className="text-gray-400 hover:text-red-600 transition-colors"
                           >
                             <span className="material-symbols-outlined text-[20px]">delete</span>

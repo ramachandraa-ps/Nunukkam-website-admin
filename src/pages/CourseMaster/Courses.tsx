@@ -5,6 +5,9 @@ import courseService from '../../services/courseService';
 import { ApiCourse, CourseStatus } from '../../types/course';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
 
+type SortField = 'title' | 'status' | 'duration' | 'skills';
+type SortOrder = 'asc' | 'desc';
+
 const Courses: React.FC = () => {
   const navigate = useNavigate();
   const { addToast } = useStore();
@@ -13,8 +16,10 @@ const Courses: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<CourseStatus | ''>('');
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; title: string }>({ isOpen: false, id: '', title: '' });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; title: string; skillCount: number }>({ isOpen: false, id: '', title: '', skillCount: 0 });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<SortField>('title');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
   // Fetch courses from API
   const fetchCourses = useCallback(async () => {
@@ -44,6 +49,30 @@ const Courses: React.FC = () => {
     course.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Sort courses
+  const sortedCourses = [...filteredCourses].sort((a, b) => {
+    let comparison = 0;
+    if (sortField === 'title') {
+      comparison = a.title.localeCompare(b.title);
+    } else if (sortField === 'status') {
+      comparison = a.status.localeCompare(b.status);
+    } else if (sortField === 'duration') {
+      comparison = a.durationDays - b.durationDays;
+    } else if (sortField === 'skills') {
+      comparison = (a._count?.coreSkills ?? 0) - (b._count?.coreSkills ?? 0);
+    }
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value.includes('-')) {
+      const [field, order] = value.split('-') as [SortField, SortOrder];
+      setSortField(field);
+      setSortOrder(order);
+    }
+  };
+
   const getCoreSkillNames = (course: ApiCourse) => {
     if (!course.coreSkills || course.coreSkills.length === 0) return 'None';
     return course.coreSkills.map(cs => cs.coreSkill.name).join(', ');
@@ -63,7 +92,7 @@ const Courses: React.FC = () => {
       const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
       addToast('error', axiosError.response?.data?.error?.message || 'Failed to delete course');
     } finally {
-      setDeleteConfirm({ isOpen: false, id: '', title: '' });
+      setDeleteConfirm({ isOpen: false, id: '', title: '', skillCount: 0 });
     }
   };
 
@@ -120,10 +149,13 @@ const Courses: React.FC = () => {
     <div className="space-y-8">
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ isOpen: false, id: '', title: '' })}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: '', title: '', skillCount: 0 })}
         onConfirm={handleDelete}
         title="Delete Course"
-        message={`Are you sure you want to delete "${deleteConfirm.title}"? This action cannot be undone.`}
+        message={deleteConfirm.skillCount > 0
+          ? `Warning: "${deleteConfirm.title}" has ${deleteConfirm.skillCount} core skill(s) and associated modules. Deleting this will permanently delete all related content. This action cannot be undone.`
+          : `Are you sure you want to delete "${deleteConfirm.title}"? This action cannot be undone.`
+        }
         confirmText="Delete"
         type="danger"
       />
@@ -194,6 +226,20 @@ const Courses: React.FC = () => {
             <option value="PUBLISHED">Published</option>
             <option value="ARCHIVED">Archived</option>
           </select>
+          <select
+            value={`${sortField}-${sortOrder}`}
+            onChange={handleSortChange}
+            className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 focus:outline-none focus:border-primary-700"
+          >
+            <option value="title-asc">Title A-Z</option>
+            <option value="title-desc">Title Z-A</option>
+            <option value="status-asc">Status A-Z</option>
+            <option value="status-desc">Status Z-A</option>
+            <option value="duration-asc">Duration (Short first)</option>
+            <option value="duration-desc">Duration (Long first)</option>
+            <option value="skills-asc">Skills (Least first)</option>
+            <option value="skills-desc">Skills (Most first)</option>
+          </select>
         </div>
         <button
           onClick={() => navigate('/courses/create')}
@@ -205,7 +251,7 @@ const Courses: React.FC = () => {
       </div>
 
       {/* Grid */}
-      {filteredCourses.length === 0 ? (
+      {sortedCourses.length === 0 ? (
         <div className="text-center py-16">
           <span className="material-symbols-outlined text-6xl text-gray-300 mb-4">school</span>
           <h3 className="text-lg font-medium text-gray-600 dark:text-gray-400">No courses found</h3>
@@ -219,7 +265,7 @@ const Courses: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredCourses.map((course) => (
+          {sortedCourses.map((course) => (
             <div key={course.id} onClick={() => navigate(`/courses/${course.id}/core-skills`)} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer">
               <div className="h-40 bg-gradient-to-br from-primary-600 to-primary-800 relative">
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
@@ -292,7 +338,7 @@ const Courses: React.FC = () => {
                       <span className="material-symbols-outlined">edit</span>
                     </button>
                     <button
-                      onClick={() => setDeleteConfirm({ isOpen: true, id: course.id, title: course.title })}
+                      onClick={() => setDeleteConfirm({ isOpen: true, id: course.id, title: course.title, skillCount: course._count?.coreSkills ?? 0 })}
                       className="text-gray-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"
                       title="Delete"
                     >
