@@ -26,7 +26,7 @@ export const uploadService = {
     category: UploadCategory,
     fileType?: FileType,
     subFolder?: string
-  ): Promise<ApiResponse<{ file: UploadResult }>> => {
+  ): Promise<ApiResponse<UploadResult>> => {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -35,7 +35,7 @@ export const uploadService = {
     if (fileType) params.append('fileType', fileType);
     if (subFolder) params.append('subFolder', subFolder);
 
-    const response = await api.post<ApiResponse<{ file: UploadResult }>>(
+    const response = await api.post<ApiResponse<UploadResult>>(
       `${UPLOAD_ENDPOINTS.FILE}?${params.toString()}`,
       formData,
       {

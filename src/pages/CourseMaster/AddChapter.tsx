@@ -127,7 +127,7 @@ const AddChapter: React.FC = () => {
       if (response.success && response.data) {
         setFormData(prev => ({
           ...prev,
-          pptFile: response.data!.file.url,
+          pptFile: response.data!.url,
           pptFileName: file.name,
         }));
         addToast('success', 'PPT uploaded successfully');
@@ -166,7 +166,7 @@ const AddChapter: React.FC = () => {
       if (response.success && response.data) {
         setFormData(prev => ({
           ...prev,
-          notesFile: response.data!.file.url,
+          notesFile: response.data!.url,
           notesFileName: file.name,
         }));
         addToast('success', 'Notes uploaded successfully');

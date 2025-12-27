@@ -5,7 +5,14 @@
       "Bash(curl:*)",
       "Bash(timeout:*)",
       "Bash(npm run dev:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Add comprehensive type definitions, services, and API integration\n\n- Add authentication context and protected routes\n- Add all API services \\(courses, students, colleges, users, etc.\\)\n- Add type definitions for all entities\n- Update pages to use API services\n- Add batch management and attendance features\n- Update sidebar navigation\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(taskkill:*)",
+      "Bash(findstr:*)"
     ]
   }
 }
