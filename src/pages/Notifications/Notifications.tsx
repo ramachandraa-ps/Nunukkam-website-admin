@@ -3,17 +3,7 @@ import { useStore } from '../../store/useStore';
 import Modal from '../../components/shared/Modal';
 import notificationService from '../../services/notificationService';
 import userService from '../../services/userService';
-import { NotificationType } from '../../types/reports';
-
-interface LocalNotification {
-  id: string;
-  type: 'info' | 'success' | 'warning' | 'error';
-  title: string;
-  message: string;
-  timestamp: string;
-  read: boolean;
-  category: 'system' | 'user' | 'course' | 'college';
-}
+import { Notification, NotificationType, NotificationStatus } from '../../types/reports';
 
 interface ApiUser {
   id: string;
@@ -25,11 +15,16 @@ interface ApiUser {
 const Notifications: React.FC = () => {
   const { addToast } = useStore();
   const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<NotificationType | 'all'>('all');
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+
+  // Notifications state
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const [sendForm, setSendForm] = useState({
     userId: '',
@@ -38,6 +33,47 @@ const Notifications: React.FC = () => {
     type: 'INFO' as NotificationType,
     sendToAll: false,
   });
+
+  // Fetch notifications from API
+  const fetchNotifications = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const statusParam: NotificationStatus | undefined =
+        filter === 'unread' ? 'UNREAD' :
+        filter === 'read' ? 'READ' :
+        undefined;
+
+      const typeParam: NotificationType | undefined =
+        typeFilter !== 'all' ? typeFilter : undefined;
+
+      const response = await notificationService.getNotifications({
+        status: statusParam,
+        type: typeParam,
+        limit: 100,
+      });
+
+      if (response.success && response.data) {
+        setNotifications(response.data.notifications);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+      addToast('error', 'Failed to load notifications');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filter, typeFilter, addToast]);
+
+  // Fetch unread count
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const response = await notificationService.getUnreadCount();
+      if (response.success && response.data) {
+        setUnreadCount(response.data.count);
+      }
+    } catch (error) {
+      console.error('Failed to fetch unread count:', error);
+    }
+  }, []);
 
   // Fetch users for the dropdown
   const fetchUsers = useCallback(async () => {
@@ -55,59 +91,15 @@ const Notifications: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    fetchNotifications();
+    fetchUnreadCount();
+  }, [fetchNotifications, fetchUnreadCount]);
+
+  useEffect(() => {
     if (isSendModalOpen && users.length === 0) {
       fetchUsers();
     }
   }, [isSendModalOpen, users.length, fetchUsers]);
-
-  // System notifications (local display)
-  const [notifications, setNotifications] = useState<LocalNotification[]>([
-    {
-      id: '1',
-      type: 'success',
-      title: 'New User Registered',
-      message: 'John Smith has been successfully added as a Trainer.',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      read: false,
-      category: 'user',
-    },
-    {
-      id: '2',
-      type: 'info',
-      title: 'Course Published',
-      message: 'Communication Skills course has been published and is now available.',
-      timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-      read: false,
-      category: 'course',
-    },
-    {
-      id: '3',
-      type: 'warning',
-      title: 'Session Reminder',
-      message: 'Upcoming session for ABC Engineering College scheduled in 2 hours.',
-      timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
-      read: true,
-      category: 'college',
-    },
-    {
-      id: '4',
-      type: 'error',
-      title: 'Upload Failed',
-      message: 'Video upload for Chapter 3 failed. Please try again.',
-      timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-      read: true,
-      category: 'course',
-    },
-    {
-      id: '5',
-      type: 'info',
-      title: 'System Maintenance',
-      message: 'Scheduled maintenance will occur on Sunday, 2 AM - 4 AM IST.',
-      timestamp: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
-      read: false,
-      category: 'system',
-    },
-  ]);
 
   const handleSendNotification = async () => {
     if (!sendForm.title || !sendForm.message) {
@@ -123,7 +115,6 @@ const Notifications: React.FC = () => {
     setIsSending(true);
     try {
       if (sendForm.sendToAll) {
-        // Bulk send to all users
         const userIds = users.map(u => u.id);
         const response = await notificationService.bulkCreateNotifications({
           userIds,
@@ -136,11 +127,12 @@ const Notifications: React.FC = () => {
           addToast('success', `Notification sent to ${response.data?.count || userIds.length} users`);
           setIsSendModalOpen(false);
           setSendForm({ userId: '', title: '', message: '', type: 'INFO', sendToAll: false });
+          fetchNotifications();
+          fetchUnreadCount();
         } else {
           addToast('error', 'Failed to send notifications');
         }
       } else {
-        // Send to single user
         const response = await notificationService.createNotification({
           userId: sendForm.userId,
           title: sendForm.title,
@@ -152,6 +144,8 @@ const Notifications: React.FC = () => {
           addToast('success', 'Notification sent successfully');
           setIsSendModalOpen(false);
           setSendForm({ userId: '', title: '', message: '', type: 'INFO', sendToAll: false });
+          fetchNotifications();
+          fetchUnreadCount();
         } else {
           addToast('error', 'Failed to send notification');
         }
@@ -165,42 +159,93 @@ const Notifications: React.FC = () => {
     }
   };
 
-  const getTypeIcon = (type: string) => {
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      const response = await notificationService.markAsRead(id);
+      if (response.success) {
+        setNotifications(prev =>
+          prev.map(n => (n.id === id ? { ...n, status: 'READ' as NotificationStatus, readAt: new Date().toISOString() } : n))
+        );
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error('Failed to mark as read:', error);
+      addToast('error', 'Failed to mark notification as read');
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      const response = await notificationService.markAllAsRead();
+      if (response.success) {
+        setNotifications(prev =>
+          prev.map(n => ({ ...n, status: 'READ' as NotificationStatus, readAt: new Date().toISOString() }))
+        );
+        setUnreadCount(0);
+        addToast('success', `${response.data?.count || 0} notifications marked as read`);
+      }
+    } catch (error) {
+      console.error('Failed to mark all as read:', error);
+      addToast('error', 'Failed to mark all notifications as read');
+    }
+  };
+
+  const handleDeleteNotification = async (id: string) => {
+    try {
+      const response = await notificationService.deleteNotification(id);
+      if (response.success) {
+        const notification = notifications.find(n => n.id === id);
+        setNotifications(prev => prev.filter(n => n.id !== id));
+        if (notification?.status === 'UNREAD') {
+          setUnreadCount(prev => Math.max(0, prev - 1));
+        }
+        addToast('success', 'Notification deleted');
+      }
+    } catch (error) {
+      console.error('Failed to delete notification:', error);
+      addToast('error', 'Failed to delete notification');
+    }
+  };
+
+  const getTypeIcon = (type: NotificationType) => {
     switch (type) {
-      case 'success':
+      case 'SUCCESS':
         return 'check_circle';
-      case 'warning':
+      case 'WARNING':
         return 'warning';
-      case 'error':
+      case 'ERROR':
         return 'error';
+      case 'DEADLINE':
+        return 'schedule';
+      case 'ASSIGNMENT':
+        return 'assignment';
+      case 'GRADE':
+        return 'grade';
+      case 'SYSTEM':
+        return 'settings';
       default:
         return 'info';
     }
   };
 
-  const getTypeColor = (type: string) => {
+  const getTypeColor = (type: NotificationType) => {
     switch (type) {
-      case 'success':
+      case 'SUCCESS':
         return 'text-green-600 bg-green-50';
-      case 'warning':
+      case 'WARNING':
         return 'text-yellow-600 bg-yellow-50';
-      case 'error':
+      case 'ERROR':
         return 'text-red-600 bg-red-50';
+      case 'DEADLINE':
+        return 'text-orange-600 bg-orange-50';
+      case 'ASSIGNMENT':
+        return 'text-purple-600 bg-purple-50';
+      case 'GRADE':
+        return 'text-indigo-600 bg-indigo-50';
+      case 'SYSTEM':
+        return 'text-gray-600 bg-gray-50';
       default:
         return 'text-blue-600 bg-blue-50';
-    }
-  };
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'user':
-        return 'person';
-      case 'course':
-        return 'auto_stories';
-      case 'college':
-        return 'school';
-      default:
-        return 'settings';
     }
   };
 
@@ -217,36 +262,10 @@ const Notifications: React.FC = () => {
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const markAsRead = (id: string) => {
-    setNotifications(prev =>
-      prev.map(n => (n.id === id ? { ...n, read: true } : n))
-    );
-  };
-
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
-
-  const deleteNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  };
-
-  const filteredNotifications = notifications.filter(n => {
-    const matchesReadFilter =
-      filter === 'all' || (filter === 'unread' && !n.read) || (filter === 'read' && n.read);
-    const matchesCategoryFilter = categoryFilter === 'all' || n.category === categoryFilter;
-    return matchesReadFilter && matchesCategoryFilter;
-  });
-
-  const unreadCount = notifications.filter(n => !n.read).length;
-
-  const categories = [
-    { id: 'all', label: 'All', icon: 'notifications' },
-    { id: 'system', label: 'System', icon: 'settings' },
-    { id: 'user', label: 'Users', icon: 'person' },
-    { id: 'course', label: 'Courses', icon: 'auto_stories' },
-    { id: 'college', label: 'Colleges', icon: 'school' },
-  ];
+  // Calculate stats
+  const totalCount = notifications.length;
+  const successCount = notifications.filter(n => n.type === 'SUCCESS').length;
+  const alertCount = notifications.filter(n => n.type === 'WARNING' || n.type === 'ERROR').length;
 
   const notificationTypes: { value: NotificationType; label: string }[] = [
     { value: 'INFO', label: 'Information' },
@@ -255,7 +274,20 @@ const Notifications: React.FC = () => {
     { value: 'ERROR', label: 'Error' },
     { value: 'DEADLINE', label: 'Deadline' },
     { value: 'ASSIGNMENT', label: 'Assignment' },
+    { value: 'GRADE', label: 'Grade' },
     { value: 'SYSTEM', label: 'System' },
+  ];
+
+  const typeFilters: { id: NotificationType | 'all'; label: string; icon: string }[] = [
+    { id: 'all', label: 'All', icon: 'notifications' },
+    { id: 'SYSTEM', label: 'System', icon: 'settings' },
+    { id: 'INFO', label: 'Info', icon: 'info' },
+    { id: 'SUCCESS', label: 'Success', icon: 'check_circle' },
+    { id: 'WARNING', label: 'Warning', icon: 'warning' },
+    { id: 'ERROR', label: 'Error', icon: 'error' },
+    { id: 'DEADLINE', label: 'Deadline', icon: 'schedule' },
+    { id: 'ASSIGNMENT', label: 'Assignment', icon: 'assignment' },
+    { id: 'GRADE', label: 'Grade', icon: 'grade' },
   ];
 
   return (
@@ -383,7 +415,7 @@ const Notifications: React.FC = () => {
           </button>
           {unreadCount > 0 && (
             <button
-              onClick={markAllAsRead}
+              onClick={handleMarkAllAsRead}
               className="px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50 rounded-xl transition-colors flex items-center gap-2"
             >
               <span className="material-symbols-outlined text-lg">done_all</span>
@@ -401,7 +433,7 @@ const Notifications: React.FC = () => {
               <span className="material-symbols-outlined text-primary-700">notifications</span>
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{notifications.length}</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalCount}</p>
               <p className="text-xs text-gray-500">Total</p>
             </div>
           </div>
@@ -423,9 +455,7 @@ const Notifications: React.FC = () => {
               <span className="material-symbols-outlined text-green-600">check_circle</span>
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {notifications.filter(n => n.type === 'success').length}
-              </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{successCount}</p>
               <p className="text-xs text-gray-500">Success</p>
             </div>
           </div>
@@ -436,9 +466,7 @@ const Notifications: React.FC = () => {
               <span className="material-symbols-outlined text-yellow-600">warning</span>
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {notifications.filter(n => n.type === 'warning' || n.type === 'error').length}
-              </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{alertCount}</p>
               <p className="text-xs text-gray-500">Alerts</p>
             </div>
           </div>
@@ -450,12 +478,12 @@ const Notifications: React.FC = () => {
         <div className="lg:w-64 flex-shrink-0">
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-2">
             <p className="px-4 py-2 text-xs font-bold uppercase tracking-wide text-gray-400">Categories</p>
-            {categories.map(cat => (
+            {typeFilters.map(cat => (
               <button
                 key={cat.id}
-                onClick={() => setCategoryFilter(cat.id)}
+                onClick={() => setTypeFilter(cat.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-colors ${
-                  categoryFilter === cat.id
+                  typeFilter === cat.id
                     ? 'bg-primary-50 text-primary-700'
                     : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                 }`}
@@ -464,7 +492,7 @@ const Notifications: React.FC = () => {
                 <span className="font-medium">{cat.label}</span>
                 {cat.id !== 'all' && (
                   <span className="ml-auto text-xs bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
-                    {notifications.filter(n => n.category === cat.id).length}
+                    {notifications.filter(n => n.type === cat.id).length}
                   </span>
                 )}
               </button>
@@ -497,7 +525,14 @@ const Notifications: React.FC = () => {
         {/* Notifications List */}
         <div className="flex-1">
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-            {filteredNotifications.length === 0 ? (
+            {isLoading ? (
+              <div className="p-12 text-center">
+                <div className="flex items-center justify-center gap-3">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-700"></div>
+                  <span className="text-gray-500">Loading notifications...</span>
+                </div>
+              </div>
+            ) : notifications.length === 0 ? (
               <div className="p-12 text-center">
                 <span className="material-symbols-outlined text-5xl text-gray-300 mb-4 block">
                   notifications_off
@@ -513,11 +548,11 @@ const Notifications: React.FC = () => {
               </div>
             ) : (
               <div className="divide-y divide-gray-50 dark:divide-gray-700">
-                {filteredNotifications.map(notification => (
+                {notifications.map(notification => (
                   <div
                     key={notification.id}
                     className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                      !notification.read ? 'bg-primary-50/30 dark:bg-primary-900/10' : ''
+                      notification.status === 'UNREAD' ? 'bg-primary-50/30 dark:bg-primary-900/10' : ''
                     }`}
                   >
                     <div className="flex items-start gap-4">
@@ -538,7 +573,7 @@ const Notifications: React.FC = () => {
                               <h4 className="text-sm font-bold text-gray-900 dark:text-white">
                                 {notification.title}
                               </h4>
-                              {!notification.read && (
+                              {notification.status === 'UNREAD' && (
                                 <span className="w-2 h-2 bg-primary-700 rounded-full"></span>
                               )}
                             </div>
@@ -548,21 +583,21 @@ const Notifications: React.FC = () => {
                             <div className="flex items-center gap-3 mt-2">
                               <span className="text-xs text-gray-400 flex items-center gap-1">
                                 <span className="material-symbols-outlined text-sm">
-                                  {getCategoryIcon(notification.category)}
+                                  {getTypeIcon(notification.type)}
                                 </span>
-                                {notification.category.charAt(0).toUpperCase() + notification.category.slice(1)}
+                                {notification.type}
                               </span>
                               <span className="text-xs text-gray-400">
-                                {formatTimestamp(notification.timestamp)}
+                                {formatTimestamp(notification.createdAt)}
                               </span>
                             </div>
                           </div>
 
                           {/* Actions */}
                           <div className="flex items-center gap-1">
-                            {!notification.read && (
+                            {notification.status === 'UNREAD' && (
                               <button
-                                onClick={() => markAsRead(notification.id)}
+                                onClick={() => handleMarkAsRead(notification.id)}
                                 className="p-2 text-gray-400 hover:text-primary-700 hover:bg-primary-50 rounded-lg transition-colors"
                                 title="Mark as read"
                               >
@@ -570,7 +605,7 @@ const Notifications: React.FC = () => {
                               </button>
                             )}
                             <button
-                              onClick={() => deleteNotification(notification.id)}
+                              onClick={() => handleDeleteNotification(notification.id)}
                               className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete"
                             >
